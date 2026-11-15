@@ -23,16 +23,21 @@
     alertFinal: 0.95,          // 95%: run ending shortly — final ready-time calculation
     watcherThreshold: 0.05,    // watcher speaks at >= 5% saving on an affected load
     preLadenMinutes: 15,       // pre-laden confirmation looks 15 minutes ahead
-    handlingPerPallet: 6,      // dollars
+    handlingPerPallet: 6,      // dollars (plant-side figure)
+    fuelSurchargePct: 0.12,    // FSC on the lane rate — Q1 2026 actual: fuel $30,386 on line haul $253,995 (ECHO review deck)
     boxes: {
       '45T': { label: "45' trailer", cap: 22, loadRate: 2.5, setup: 10 },
       '26B': { label: "26' box truck", cap: 12, loadRate: 2.0, setup: 8 }
     },
-    laneRates: { // dollars per box, per lane
-      'NYC Metro':    { '45T': 420, '26B': 260 },
-      'Philadelphia': { '45T': 380, '26B': 240 },
-      'Boston':       { '45T': 460, '26B': 290 },
-      'DC / Baltimore': { '45T': 440, '26B': 275 }
+    laneRates: { // dollars per box, per lane — grounded in the ECHO Q1 2026 freight review (Jersey City plant):
+      // 45' = TL average total spend per shipment on the matching real lane (Brentwood NY $682, 18 shipments;
+      // Breinigsville PA $555; Canton MA $700; DC / Baltimore uses the deck-wide TL average $855, 190 shipments,
+      // no DC lane in the deck's top lanes). 26' = 45' x 0.83, the deck's small-shipment ratio
+      // (expedite average $710 / TL average $855). Fuel surcharge is applied on top in planCost.
+      'NYC Metro':    { '45T': 682, '26B': 566 },
+      'Philadelphia': { '45T': 555, '26B': 461 },
+      'Boston':       { '45T': 700, '26B': 581 },
+      'DC / Baltimore': { '45T': 855, '26B': 710 }
     },
     machines: 5,
     gates: ['G1', 'G2']
@@ -174,7 +179,7 @@
     }
 
     function planCost(dep, pallets) {
-      return CONFIG.laneRates[dep.lane][dep.box] + CONFIG.handlingPerPallet * pallets;
+      return CONFIG.laneRates[dep.lane][dep.box] * (1 + CONFIG.fuelSurchargePct) + CONFIG.handlingPerPallet * pallets;
     }
 
     function candidateLoads(dep) {
