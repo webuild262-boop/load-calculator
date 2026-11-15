@@ -7,18 +7,44 @@
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-         background: #0d1117; color: #e6edf3; line-height: 1.6; }
-  main { max-width: 760px; margin: 0 auto; padding: 56px 24px 72px; }
+         background: #0d1117; color: #e6edf3; line-height: 1.55; }
+  main { max-width: 980px; margin: 0 auto; padding: 40px 20px 64px; }
   .brand { color: #7ee787; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; font-size: .8rem; }
-  h1 { font-size: 2.6rem; margin: .35em 0 .1em; line-height: 1.15; }
-  .tagline { color: #9ecbff; font-size: 1.15rem; margin: 0 0 2rem; }
-  p { font-size: 1.05rem; }
-  .apps { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 2rem 0; }
-  .card { border: 1px solid #30363d; border-radius: 10px; padding: 18px 20px; background: #161b22; }
-  .card h2 { margin: 0 0 .4em; font-size: 1.2rem; color: #7ee787; }
-  .card p { margin: 0; font-size: .98rem; color: #c9d1d9; }
-  .status { border-top: 1px solid #30363d; margin-top: 2.5rem; padding-top: 1.2rem; color: #8b949e; font-size: .95rem; }
-  @media (max-width: 560px) { .apps { grid-template-columns: 1fr; } h1 { font-size: 2rem; } }
+  h1 { font-size: 2.2rem; margin: .3em 0 .1em; line-height: 1.15; }
+  .tagline { color: #9ecbff; font-size: 1.05rem; margin: 0 0 1rem; }
+  .def { color: #c9d1d9; max-width: 760px; }
+  h2 { font-size: 1.25rem; margin: 1.8rem 0 .6rem; color: #7ee787; }
+  h2 span { color: #8b949e; font-weight: 400; font-size: .95rem; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 1.2rem 0 .4rem; }
+  button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
+           padding: 8px 14px; font-size: .95rem; cursor: pointer; }
+  button:hover { background: #30363d; }
+  button.wrench { border-color: #9e6a03; }
+  .clock { font-size: 1.3rem; font-weight: 700; margin-left: auto; }
+  .clock small { color: #8b949e; font-weight: 400; font-size: .85rem; }
+  .counters { display: flex; flex-wrap: wrap; gap: 10px; margin: 1rem 0; }
+  .counter { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 10px 14px; min-width: 120px; }
+  .counter .c-num { display: block; font-size: 1.3rem; font-weight: 700; color: #7ee787; }
+  .counter.off .c-num { color: #f0883e; }
+  .counter .c-lbl { color: #8b949e; font-size: .8rem; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .machine, .dep { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .machine-head, .dep-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .m-order, .dep-head span { color: #c9d1d9; font-size: .92rem; }
+  .bar { position: relative; height: 10px; background: #21262d; border-radius: 5px; margin: 8px 0 6px; overflow: hidden; }
+  .bar-fill { height: 100%; background: #2ea043; border-radius: 5px; transition: width .3s; }
+  .bar-fill.ship { background: #1f6feb; }
+  .bar-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: #e6edf3; opacity: .55; }
+  .m-meta, .dep-meta, .m-queue, .dep-loads { color: #8b949e; font-size: .85rem; }
+  .dep-loads { margin-top: 4px; color: #c9d1d9; }
+  .board { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 14px; min-height: 54px; }
+  .dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; margin: 3px; vertical-align: middle; }
+  .watcher-item { border: 1px solid #9e6a03; background: #2d2003; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+  .logbox { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 12px 14px; font-size: .9rem; }
+  .log-t { color: #9ecbff; }
+  .dim { color: #8b949e; }
+  .status { border-top: 1px solid #30363d; margin-top: 2.2rem; padding-top: 1rem; color: #8b949e; font-size: .92rem; }
 </style>
 </head>
 <body>
@@ -26,33 +52,93 @@
   <div class="brand">Webuild262</div>
   <h1>Load Calculator</h1>
   <p class="tagline">One Engine. Two Decisions. Endless Applications.</p>
-
-  <p>Load Calculator is a variable calculator. It takes multiple various variables that are
+  <p class="def">Load Calculator is a variable calculator. It takes multiple various variables that are
   changeable by quantity, size, weight, and/or time. The operator places the variables needed
   as input, and the placed variables create the equation. The equation calculates the best
   output for the outcome requested. Time and timing sit at the core of every calculation the
-  engine runs.</p>
+  engine runs. This case places production and shipping variables for manufacturing.</p>
 
-  <p>This case places production and shipping variables for manufacturing: streamline the
-  process for greater productivity and output, and less friction.</p>
-
-  <div class="apps">
-    <div class="card">
-      <h2>Processing</h2>
-      <p>What runs, in what order, finishing when. Machine board, run priority, ready-time
-      projections, materials in and recycling out per order and per machine.</p>
-    </div>
-    <div class="card">
-      <h2>Shipping</h2>
-      <p>What goes out, in which box, from which gate, at what time, at what cost.
-      Inventory, gate schedule, load matching, bills of lading, and the watcher.</p>
-    </div>
+  <div class="controls">
+    <button id="btn-play">⏸ Pause</button>
+    <button id="btn-speed">Speed 1×</button>
+    <button id="btn-reset">↺ Restart the day</button>
+    <button class="wrench" id="btn-hot">⚒ Throw a wrench: hot order</button>
+    <button class="wrench" id="btn-pull">⚒ Throw a wrench: pull an order</button>
+    <div class="clock"><span id="clock">7:00 AM</span> <small id="phase">morning fill</small></div>
   </div>
 
-  <p>Processing knows when to react. Shipping knows when not to release. Both decisions come
-  from the same reusable intelligence.</p>
+  <div class="counters" id="counters"></div>
 
-  <div class="status">In build — Kiroween 2026, Skeleton Crew. Hosted on Microsoft Azure.</div>
+  <div class="grid">
+    <section>
+      <h2>Processing <span>— what runs, in what order, finishing when</span></h2>
+      <div id="proc-board"></div>
+    </section>
+    <section>
+      <h2>Shipping <span>— what goes out, in which box, from which gate, at what time, at what cost</span></h2>
+      <div id="ship-board"></div>
+    </section>
+  </div>
+
+  <h2>Load board <span>— every load a dot; the shade is the calculation talking: green optimal, red needs help</span></h2>
+  <div class="board" id="dot-board"></div>
+
+  <h2>Watcher</h2>
+  <div id="watcher"></div>
+
+  <h2>Day log</h2>
+  <div class="logbox" id="log"></div>
+
+  <div class="status">Live demo — simulated feeds; the core accepts real feeds unchanged.
+  Demo configuration: 5 machines, 2 gates, the close at 1:30 PM. Built for Kiroween 2026 · Skeleton Crew · Hosted on Microsoft Azure.</div>
 </main>
+
+<script src="packages/variable-engine/engine.js"></script>
+<script src="apps/processing/processing.js"></script>
+<script src="apps/shipping/shipping.js"></script>
+<script>
+(function () {
+  var engine = LoadEngine.createEngine(262);
+  var playing = true, speed = 1, speeds = [1, 4, 16], speedIdx = 0;
+  var els = {
+    clock: document.getElementById('clock'), phase: document.getElementById('phase'),
+    counters: document.getElementById('counters'), proc: document.getElementById('proc-board'),
+    ship: document.getElementById('ship-board'), dots: document.getElementById('dot-board'),
+    log: document.getElementById('log'), watcher: document.getElementById('watcher')
+  };
+  function render() {
+    els.clock.textContent = engine.fmtTime(engine.state.now);
+    els.phase.textContent = engine.state.now >= engine.config.dayEnd ? 'day complete'
+      : (engine.state.closed ? 'plan set at the close — watcher on duty' : 'morning fill');
+    ShippingUI.renderCounters(engine, els.counters);
+    ProcessingUI.render(engine, els.proc);
+    ShippingUI.renderDepartures(engine, els.ship);
+    ShippingUI.renderBoard(engine, els.dots);
+    ShippingUI.renderLog(engine, els.log, els.watcher);
+  }
+  setInterval(function () {
+    if (!playing) return;
+    if (engine.state.now < engine.config.dayEnd) engine.tick(0.5 * speed);
+    render();
+  }, 250);
+  document.getElementById('btn-play').addEventListener('click', function () {
+    playing = !playing;
+    this.textContent = playing ? '⏸ Pause' : '▶ Run';
+  });
+  document.getElementById('btn-speed').addEventListener('click', function () {
+    speedIdx = (speedIdx + 1) % speeds.length;
+    speed = speeds[speedIdx];
+    this.textContent = 'Speed ' + speed + '×';
+  });
+  document.getElementById('btn-reset').addEventListener('click', function () {
+    engine = LoadEngine.createEngine(262);
+    render();
+  });
+  document.getElementById('btn-hot').addEventListener('click', function () { engine.hotOrder(); render(); });
+  document.getElementById('btn-pull').addEventListener('click', function () { engine.pullOrder(); render(); });
+  window.__watcherDecision = function (i, accept) { engine.watcherDecision(i, accept); render(); };
+  render();
+})();
+</script>
 </body>
 </html>
