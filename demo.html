@@ -20,6 +20,10 @@
            padding: 8px 14px; font-size: .95rem; cursor: pointer; }
   button:hover { background: #30363d; }
   button.wrench { border-color: #9e6a03; }
+  button.mode-on { border-color: #2ea043; color: #7ee787; font-weight: 700; }
+  button:disabled { opacity: .45; cursor: default; }
+  button:disabled:hover { background: #21262d; }
+  .mode-note { color: #8b949e; font-size: .88rem; margin: .2rem 0 0; max-width: 760px; }
   .clock { font-size: 1.3rem; font-weight: 700; margin-left: auto; }
   .clock small { color: #8b949e; font-weight: 400; font-size: .85rem; }
   .counters { display: flex; flex-wrap: wrap; gap: 10px; margin: 1rem 0; }
@@ -82,8 +86,11 @@
     <button id="btn-reset">↺ Restart the day</button>
     <button class="wrench" id="btn-hot">⚒ Throw a wrench: hot order</button>
     <button class="wrench" id="btn-pull">⚒ Throw a wrench: pull an order</button>
+    <button id="btn-mode-sim" class="mode-on" type="button">Simulation</button>
+    <button id="btn-mode-rt" type="button">Real time</button>
     <div class="clock"><span id="clock">7:00 AM</span> <small id="phase">morning fill</small></div>
   </div>
+  <p class="mode-note" id="mode-note" hidden></p>
 
   <div class="counters" id="counters"></div>
 
@@ -155,23 +162,61 @@
 <!-- Script URLs carry a version token (?v=) so a browser can never pair this
      page with a cached older script. Bump the token on ALL THREE scripts
      whenever any one of them changes. -->
-<script src="packages/variable-engine/engine.js?v=20261117-2"></script>
-<script src="apps/processing/processing.js?v=20261117-2"></script>
-<script src="apps/delivery/delivery.js?v=20261117-2"></script>
+<script src="packages/variable-engine/engine.js?v=20261117-3"></script>
+<script src="apps/processing/processing.js?v=20261117-3"></script>
+<script src="apps/delivery/delivery.js?v=20261117-3"></script>
 <script>
 (function () {
   var engine = LoadEngine.createEngine(262);
   var playing = true, speed = 1, speeds = [1, 4, 16], speedIdx = 0;
+  var mode = 'simulation'; // 'simulation' | 'realtime'
   var els = {
     clock: document.getElementById('clock'), phase: document.getElementById('phase'),
     counters: document.getElementById('counters'), proc: document.getElementById('proc-board'),
     ship: document.getElementById('ship-board'), dots: document.getElementById('dot-board'),
     log: document.getElementById('log'), watcher: document.getElementById('watcher')
   };
+
+  // ----- Time source -----
+  // The single clock source for Real time mode: minutes after local
+  // midnight, read from the viewer's own clock. It is read through
+  // window.LoadDemo.nowSource on every sync, so a test harness can
+  // override that one function and inject a chosen time of day.
+  function localNowMinutes() {
+    var d = new Date();
+    return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+  }
+
+  // Bring the engine's "now" forward to a target minute in small steps,
+  // so the day arrives there by the same path a watched day takes —
+  // production alerts, the close, and departures all land as they should.
+  function advanceTo(target) {
+    var limit = Math.min(target, engine.config.dayEnd);
+    var guard = 0;
+    while (engine.state.now < limit && guard++ < 4000) {
+      engine.tick(Math.min(0.5, limit - engine.state.now));
+    }
+  }
+
+  // Real time sync: before the 7:00 AM start the placed day simply
+  // waits, ready; after that the engine's "now" is the local time.
+  function syncRealTime() {
+    var target = window.LoadDemo.nowSource();
+    if (target > engine.config.dayStart) advanceTo(target);
+  }
+
+  function phaseText() {
+    if (mode === 'realtime' && engine.state.now <= engine.config.dayStart &&
+        window.LoadDemo.nowSource() < engine.config.dayStart) {
+      return 'day not started — the placed day is ready at 7:00 AM';
+    }
+    if (engine.state.now >= engine.config.dayEnd) return 'day complete';
+    return engine.state.closed ? 'plan set at the close — watcher on duty' : 'morning fill';
+  }
+
   function render() {
     els.clock.textContent = engine.fmtTime(engine.state.now);
-    els.phase.textContent = engine.state.now >= engine.config.dayEnd ? 'day complete'
-      : (engine.state.closed ? 'plan set at the close — watcher on duty' : 'morning fill');
+    els.phase.textContent = phaseText();
     DeliveryUI.renderCounters(engine, els.counters);
     ProcessingUI.render(engine, els.proc);
     DeliveryUI.renderDepartures(engine, els.ship);
@@ -180,7 +225,11 @@
   }
   setInterval(function () {
     if (!playing) return;
-    if (engine.state.now < engine.config.dayEnd) engine.tick(0.5 * speed);
+    if (mode === 'realtime') {
+      syncRealTime();
+    } else if (engine.state.now < engine.config.dayEnd) {
+      engine.tick(0.5 * speed);
+    }
     render();
   }, 250);
   document.getElementById('btn-play').addEventListener('click', function () {
@@ -192,15 +241,43 @@
     speed = speeds[speedIdx];
     this.textContent = 'Speed ' + speed + '×';
   });
-  document.getElementById('btn-reset').addEventListener('click', function () {
+
+  // Build the seeded day fresh. In Real time mode it is then brought
+  // silently to the current local time, so the board shows the day as
+  // it stands at this hour. Restart runs this same path.
+  function startDay() {
     engine = LoadEngine.createEngine(262);
     entries.length = 0;
     document.getElementById('ps-pub').value = 85;
     document.getElementById('ps-fin').value = 95;
     document.getElementById('ps-fsc').value = 12;
     renderEntries();
+    if (mode === 'realtime') syncRealTime();
     render();
-  });
+  }
+  document.getElementById('btn-reset').addEventListener('click', function () { startDay(); });
+
+  // ----- Time mode: Simulation runs the demo clock; Real time takes
+  // the calculator off simulation and runs it on the viewer's day -----
+  function setMode(next) {
+    if (next === mode) { render(); return; }
+    mode = next;
+    var rt = mode === 'realtime';
+    document.getElementById('btn-mode-sim').classList.toggle('mode-on', !rt);
+    document.getElementById('btn-mode-rt').classList.toggle('mode-on', rt);
+    var speedBtn = document.getElementById('btn-speed');
+    speedBtn.disabled = rt;
+    speedBtn.textContent = rt ? 'Speed — real time' : 'Speed ' + speed + '×';
+    var note = document.getElementById('mode-note');
+    note.hidden = !rt;
+    if (rt) {
+      note.textContent = 'Real time — the clock follows your local time, so Speed does not apply. ' +
+        'Pause holds the display; on resume the clock takes the current real time again.';
+    }
+    startDay();
+  }
+  document.getElementById('btn-mode-sim').addEventListener('click', function () { setMode('simulation'); });
+  document.getElementById('btn-mode-rt').addEventListener('click', function () { setMode('realtime'); });
   document.getElementById('btn-hot').addEventListener('click', function () { engine.hotOrder(); render(); });
   document.getElementById('btn-pull').addEventListener('click', function () { engine.pullOrder(); render(); });
 
@@ -314,6 +391,16 @@
     render();
   });
   window.__watcherDecision = function (i, accept) { engine.watcherDecision(i, accept); render(); };
+
+  // Test handle: the one now-source for Real time mode lives here, so a
+  // harness can override nowSource and verify the mode at chosen times.
+  window.LoadDemo = {
+    nowSource: localNowMinutes,
+    getEngine: function () { return engine; },
+    getMode: function () { return mode; },
+    setMode: setMode,
+    syncRealTime: syncRealTime
+  };
   render();
 })();
 </script>
