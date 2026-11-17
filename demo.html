@@ -41,6 +41,14 @@
   .bar-fill.ship { background: #1f6feb; }
   .bar-mark { position: absolute; top: 0; bottom: 0; width: 2px; background: #e6edf3; opacity: .55; }
   .m-meta, .dep-meta, .m-queue, .dep-loads { color: #8b949e; font-size: .85rem; }
+  h3 { font-size: 1.05rem; margin: 1.1rem 0 .5rem; color: #7ee787; }
+  h3 span { color: #8b949e; font-weight: 400; font-size: .9rem; }
+  .queuebox { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 8px 14px; }
+  .q-row { padding: 5px 2px; border-bottom: 1px solid #21262d; font-size: .92rem; }
+  .q-row:last-child { border-bottom: none; }
+  .q-ready { color: #7ee787; font-weight: 700; }
+  .q-status { color: #9ecbff; }
+  .q-wait-head { margin-top: 12px; padding-top: 8px; border-top: 1px solid #30363d; color: #f0883e; font-size: .88rem; font-weight: 700; }
   .dep-loads { margin-top: 4px; color: #c9d1d9; }
   .board { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 14px; min-height: 54px; }
   .dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; margin: 3px; vertical-align: middle; }
@@ -142,6 +150,8 @@
     <section>
       <h2>Processing <span>— what runs, in what order, finishing when</span></h2>
       <div id="proc-board"></div>
+      <h3>Production queue <span>— what comes off the machines, in the order it comes off, and when</span></h3>
+      <div class="queuebox" id="queue-board"></div>
     </section>
     <section>
       <h2>Delivery <span>— what goes out, in which box, from which dock, at what time, at what cost</span></h2>
@@ -165,9 +175,9 @@
 <!-- Script URLs carry a version token (?v=) so a browser can never pair this
      page with a cached older script. Bump the token on ALL THREE scripts
      whenever any one of them changes. -->
-<script src="packages/variable-engine/engine.js?v=20261117-4"></script>
-<script src="apps/processing/processing.js?v=20261117-4"></script>
-<script src="apps/delivery/delivery.js?v=20261117-4"></script>
+<script src="packages/variable-engine/engine.js?v=20261117-6"></script>
+<script src="apps/processing/processing.js?v=20261117-6"></script>
+<script src="apps/delivery/delivery.js?v=20261117-6"></script>
 <script>
 (function () {
   var engine = LoadEngine.createEngine(262);
@@ -176,6 +186,7 @@
   var els = {
     clock: document.getElementById('clock'), phase: document.getElementById('phase'),
     counters: document.getElementById('counters'), proc: document.getElementById('proc-board'),
+    queue: document.getElementById('queue-board'),
     ship: document.getElementById('ship-board'), dots: document.getElementById('dot-board'),
     log: document.getElementById('log'), watcher: document.getElementById('watcher')
   };
@@ -183,14 +194,14 @@
   // ----- Data source -----
   // API base for the Live data source: the seven placed data sets are
   // fetched from <API_BASE>/datasets/<name>. The default is the
-  // relative /api path — where the data-set API serves them when it is
-  // linked behind this site. Change this one constant to point the
-  // page at an API hosted somewhere else.
-  var API_BASE = '/api';
+  // Function App that hosts the data-set API. Change this one
+  // constant to point the page at an API hosted somewhere else.
+  var API_BASE = 'https://webuild262-loadcalc-api-fbchejaseshddja0.eastus2-01.azurewebsites.net/api';
   var DATASET_NAMES = ['warehouse-inventory', 'production', 'dock-trailer-schedule',
     'upcoming-orders', 'cost-table', 'recycling', 'common-orders-and-runs'];
   var dataSource = 'seeded'; // 'seeded' | 'live'
   var dayPayload = null;     // the loaded data sets, when dataSource is 'live'
+  var waitingOrders = [];    // upcoming-orders docs no machine in the day carries
 
   function showDataNote(text) {
     var note = document.getElementById('data-note');
@@ -205,10 +216,26 @@
   // be used, say so on the board and build the seeded day instead —
   // the page never stands broken.
   function buildEngine() {
+    waitingOrders = [];
     if (dataSource === 'live' && dayPayload) {
       try {
-        return LoadEngine.createEngine(262, dayPayload);
+        var eng = LoadEngine.createEngine(262, dayPayload);
+        // An upcoming order reaches the board through the machine its
+        // document names. One that names no machine in this day has not
+        // reached a machine yet: it waits to be placed, and the
+        // production queue shows it with its delivery window.
+        var onMachine = {};
+        eng.state.machines.forEach(function (m) { onMachine[m.id] = true; });
+        var upcoming = dayPayload['upcoming-orders'] || [];
+        waitingOrders = upcoming.filter(function (d) {
+          return !d.machineId || !onMachine[d.machineId];
+        }).map(function (d) {
+          return { id: d.id, business: d.business, lane: d.lane, pallets: d.pallets,
+            windowStart: d.windowStart, windowEnd: d.windowEnd };
+        });
+        return eng;
       } catch (err) {
+        waitingOrders = [];
         showDataNote('Live data could not be used (' + err.message + ') — showing the seeded day instead.');
         dataSource = 'seeded'; dayPayload = null; markDataButtons();
       }
@@ -293,6 +320,7 @@
     els.phase.textContent = phaseText();
     DeliveryUI.renderCounters(engine, els.counters);
     ProcessingUI.render(engine, els.proc);
+    ProcessingUI.renderQueue(engine, els.queue, waitingOrders);
     DeliveryUI.renderDepartures(engine, els.ship);
     DeliveryUI.renderBoard(engine, els.dots);
     DeliveryUI.renderLog(engine, els.log, els.watcher);
