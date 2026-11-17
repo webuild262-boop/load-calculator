@@ -152,9 +152,12 @@
   Demo configuration: 5 machines, 2 docks, the close at 1:30 PM. Built for Kiroween 2026 · Skeleton Crew · Hosted on Microsoft Azure.</div>
 </main>
 
-<script src="packages/variable-engine/engine.js"></script>
-<script src="apps/processing/processing.js"></script>
-<script src="apps/delivery/delivery.js"></script>
+<!-- Script URLs carry a version token (?v=) so a browser can never pair this
+     page with a cached older script. Bump the token on ALL THREE scripts
+     whenever any one of them changes. -->
+<script src="packages/variable-engine/engine.js?v=20261117-2"></script>
+<script src="apps/processing/processing.js?v=20261117-2"></script>
+<script src="apps/delivery/delivery.js?v=20261117-2"></script>
 <script>
 (function () {
   var engine = LoadEngine.createEngine(262);
@@ -215,6 +218,16 @@
     entries.unshift({ title: title, lines: lines, at: engine.fmtTime(engine.state.now) });
     renderEntries();
   }
+  // If the page and the engine ever arrive at different versions (a cached
+  // script beside a fresh page), say so on the board instead of dying silent.
+  function engineCurrent(api) {
+    if (typeof engine[api] === 'function') return true;
+    addEntry('This page needs a reload', [
+      'The page and the calculator engine arrived at different versions, so this placement cannot run.',
+      'Reload the page, then place the variable again.'
+    ]);
+    return false;
+  }
   function timeVal(id) {
     var v = document.getElementById(id).value;
     if (!v) return null;
@@ -233,6 +246,7 @@
     });
   });
   document.getElementById('btn-place-order').addEventListener('click', function () {
+    if (!engineCurrent('placeOrder')) return;
     var pallets = Math.max(1, Math.round(numVal('pv-pallets') || 1));
     var wpp = numVal('pv-weight');
     var ready = timeVal('pv-ready'); if (ready == null) ready = engine.state.now;
@@ -266,6 +280,7 @@
     render();
   });
   document.getElementById('btn-place-dep').addEventListener('click', function () {
+    if (!engineCurrent('placeDeparture')) return;
     var t = timeVal('pd-time'); if (t == null) t = engine.state.now + 60;
     var boxKey = document.getElementById('pd-box').value;
     var dep = engine.placeDeparture({
@@ -284,6 +299,7 @@
     render();
   });
   document.getElementById('btn-place-settings').addEventListener('click', function () {
+    if (!engineCurrent('placeSettings')) return;
     var pub = numVal('ps-pub'), fin = numVal('ps-fin'), fsc = numVal('ps-fsc');
     var s = engine.placeSettings({
       alertPublish: pub == null ? null : pub / 100,
