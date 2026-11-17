@@ -1,0 +1,7 @@
+[
+  {
+    "id": "recycling-flow",
+    "materialsInPerMinute": 2,
+    "recyclingOutPerMinute": 0.7
+  }
+]

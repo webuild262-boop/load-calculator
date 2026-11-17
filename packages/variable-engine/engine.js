@@ -25,6 +25,8 @@
     preLadenMinutes: 15,       // pre-laden confirmation looks 15 minutes ahead
     handlingPerPallet: 6,      // dollars (plant-side figure)
     fuelSurchargePct: 0.12,    // FSC on the lane rate — Q1 2026 actual: fuel $30,386 on line haul $253,995 (ECHO review deck)
+    materialsInPerMinute: 2,   // production flow tallies (the recycling data set carries these)
+    recyclingOutPerMinute: 0.7,
     boxes: {
       '45T': { label: "45' trailer", cap: 22, loadRate: 2.5, setup: 10 },
       '26B': { label: "26' box truck", cap: 12, loadRate: 2.0, setup: 8 }
@@ -47,6 +49,15 @@
   var BUSINESSES = ['Acme Packaging', 'BlueLine Foods', 'Garden State Apparel',
     'Metro Pharma', 'Hudson Home Goods', 'Liberty Beverages'];
 
+  // Common orders and runs: the standing daily run, placed on its
+  // recurring pattern. It completes mid-afternoon, after the close.
+  // A data-set payload can supply its own pattern; this is the default.
+  var COMMON_RUN = {
+    business: 'Liberty Beverages (common run)', lane: 'DC / Baltimore', pallets: 8,
+    completesAt: 14 * 60 + 5, windowStart: 14 * 60, windowEnd: 15 * 60 + 55,
+    partialAllowed: true
+  };
+
   // Deterministic RNG so the demo day is the same day every run (Judge Mode seed).
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -66,14 +77,82 @@
     return h12 + ':' + (m < 10 ? '0' : '') + m + ' ' + ap;
   }
 
+  // ----- Data-set intake helpers -----
+  // A payload is the day supplied from outside the page: one document
+  // array per placed data set, in the shape tools/export-seed.js emits
+  // and the Function API serves. The cost table arrives as documents —
+  // one plant-settings document, one per lane rate, one per box — and is
+  // reassembled here onto a copy of CONFIG, so a loaded day's rates can
+  // never leak into another engine's day.
+  function applyCostTable(base, docs) {
+    var c = Object.assign({}, base);
+    var laneRates = {}, boxes = {}, sawLane = false, sawBox = false;
+    docs.forEach(function (d) {
+      if (!d || !d.id) return;
+      if (d.id === 'plant-settings') {
+        ['dayStart', 'closeTime', 'dayEnd', 'alertPublish', 'alertFinal',
+         'watcherThreshold', 'preLadenMinutes', 'handlingPerPallet',
+         'fuelSurchargePct', 'materialsInPerMinute', 'recyclingOutPerMinute',
+         'machines'].forEach(function (k) { if (d[k] != null) c[k] = d[k]; });
+        if (d.docks) c.docks = d.docks.slice();
+      } else if (d.kind === 'laneRate' && d.lane && d.rates) {
+        laneRates[d.lane] = Object.assign({}, d.rates); sawLane = true;
+      } else if (d.kind === 'box' && d.box) {
+        boxes[d.box] = { label: d.label, cap: d.cap, loadRate: d.loadRate, setup: d.setup };
+        sawBox = true;
+      }
+    });
+    if (sawLane) c.laneRates = laneRates;
+    if (sawBox) c.boxes = boxes;
+    return c;
+  }
+
+  function requireSet(payload, name) {
+    var docs = payload[name];
+    if (!Array.isArray(docs)) throw new Error('data-set payload is missing "' + name + '"');
+    return docs;
+  }
+
   // ---------- Engine ----------
-  function createEngine(seed) {
+  function createEngine(seed, payload, options) {
     var rnd = mulberry32(seed || 262);
     var uid = 1;
     function nextId(prefix) { return prefix + (uid++); }
 
+    // Effective configuration for this run of the engine. With no
+    // payload it is the module CONFIG itself, untouched — the seeded
+    // day runs exactly as it always has. A payload's cost table (and
+    // its recycling flow rates) are applied to a copy.
+    var C = CONFIG;
+    if (payload) {
+      if (payload['cost-table']) C = applyCostTable(CONFIG, payload['cost-table']);
+      var recDocs = payload['recycling'];
+      if (Array.isArray(recDocs)) {
+        var rec = null;
+        recDocs.forEach(function (d) { if (d && d.id === 'recycling-flow') rec = d; });
+        if (rec) {
+          if (C === CONFIG) C = Object.assign({}, CONFIG);
+          if (rec.materialsInPerMinute != null) C.materialsInPerMinute = rec.materialsInPerMinute;
+          if (rec.recyclingOutPerMinute != null) C.recyclingOutPerMinute = rec.recyclingOutPerMinute;
+        }
+      }
+    }
+    var lanes = Object.keys(C.laneRates);
+
+    // The standing common run for this engine: the built-in pattern, or
+    // the one the payload's common-orders-and-runs set supplies.
+    var commonRun = COMMON_RUN;
+    if (payload && Array.isArray(payload['common-orders-and-runs']) && payload['common-orders-and-runs'].length) {
+      var crDoc = payload['common-orders-and-runs'][0];
+      commonRun = {
+        business: crDoc.business, lane: crDoc.lane, pallets: crDoc.pallets,
+        completesAt: crDoc.completesAt, windowStart: crDoc.windowStart,
+        windowEnd: crDoc.windowEnd, partialAllowed: !!crDoc.partialAllowed
+      };
+    }
+
     var S = {
-      now: CONFIG.dayStart,
+      now: C.dayStart,
       closed: false,
       closeLogged: false,
       loads: {},        // id -> load
@@ -98,9 +177,9 @@
       // CONFIG values; placing new ones changes this run only, and a fresh
       // day starts from the placed defaults again.
       settings: {
-        alertPublish: CONFIG.alertPublish,
-        alertFinal: CONFIG.alertFinal,
-        fuelSurchargePct: CONFIG.fuelSurchargePct
+        alertPublish: C.alertPublish,
+        alertFinal: C.alertFinal,
+        fuelSurchargePct: C.fuelSurchargePct
       }
     };
 
@@ -111,7 +190,7 @@
 
     function addLoad(fields) {
       var load = Object.assign({
-        id: nextId('L'), state: 'inventory', readyTime: CONFIG.dayStart,
+        id: nextId('L'), state: 'inventory', readyTime: C.dayStart,
         ageDays: 0, assignedTo: null, source: 'inventory', partialOf: null
       }, fields);
       S.loads[load.id] = load;
@@ -120,15 +199,15 @@
     }
 
     function makeOrder(machineId) {
-      var lane = LANES[Math.floor(rnd() * LANES.length)];
+      var lane = lanes[Math.floor(rnd() * lanes.length)];
       return {
         id: nextId('O'),
         machineId: machineId,
         business: BUSINESSES[Math.floor(rnd() * BUSINESSES.length)],
         lane: lane,
         pallets: 10 + Math.floor(rnd() * 16), // 10–25
-        windowStart: CONFIG.dayStart + 120 + Math.floor(rnd() * 240),
-        windowEnd: CONFIG.dayStart + 480 + Math.floor(rnd() * 240),
+        windowStart: C.dayStart + 120 + Math.floor(rnd() * 240),
+        windowEnd: C.dayStart + 480 + Math.floor(rnd() * 240),
         partialAllowed: rnd() < 0.6,
         rate: 0.004 + rnd() * 0.004, // fraction of the run per minute
         progress: 0,
@@ -141,72 +220,147 @@
     }
 
     // ----- Seed the placed data sets -----
-    // (1) Warehouse inventory: finished orders waiting, each with an age.
-    //     The demo seed shapes the lanes the way a real plant looks —
-    //     three heavy lanes and one light lane (DC / Baltimore).
-    var laneBag = [];
-    ['NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro',
-     'Philadelphia', 'Philadelphia', 'Philadelphia', 'Philadelphia', 'Philadelphia', 'Philadelphia', 'Philadelphia',
-     'Boston', 'Boston', 'Boston', 'Boston', 'Boston', 'Boston', 'Boston',
-     'DC / Baltimore', 'DC / Baltimore'].forEach(function (l) { laneBag.push(l); });
-    for (var i = 0; i < laneBag.length; i++) {
-      var lane = laneBag[i];
-      addLoad({
-        business: BUSINESSES[Math.floor(rnd() * BUSINESSES.length)],
-        lane: lane,
-        pallets: lane === 'DC / Baltimore' ? 5 + Math.floor(rnd() * 5) : 8 + Math.floor(rnd() * 16),
-        windowStart: CONFIG.dayStart + Math.floor(rnd() * 180),
-        windowEnd: CONFIG.dayStart + 420 + Math.floor(rnd() * 300),
-        partialAllowed: rnd() < 0.6,
-        ageDays: Math.floor(rnd() * 5),
-        source: 'inventory'
-      });
-    }
-    // (2) Production: machines with running orders and a queue behind each.
-    for (var m = 0; m < CONFIG.machines; m++) {
-      var machine = { id: 'M' + (m + 1), current: makeOrder('M' + (m + 1)), queue: [] };
-      machine.current.progress = 0.15 + rnd() * 0.5;
-      machine.queue.push(makeOrder(machine.id));
-      machine.queue.push(makeOrder(machine.id));
-      S.machines.push(machine);
-    }
-    // (3) Dock and trailer schedule: the plant sets the pickups; the engine
-    //     builds each load backward from its scheduled cutoff.
-    var sched = [
-      ['D1', 9 * 60 + 30, '45T'], ['D2', 10 * 60 + 15, '45T'],
-      ['D1', 11 * 60, '26B'], ['D2', 12 * 60, '26B'],
-      ['D1', 12 * 60 + 45, '45T'], ['D2', 13 * 60 + 45, '45T'],
-      ['D1', 14 * 60 + 30, '45T'], ['D2', 15 * 60 + 30, '45T']
-    ];
-    sched.forEach(function (row, idx) {
-      S.departures.push({
-        id: nextId('D'), dock: row[0], time: row[1],
-        lane: LANES[idx % LANES.length], box: row[2],
-        bol: false, departed: false, preLadenDone: false
-      });
-    });
-    // Snapshot the day's placed inputs for the manual comparison, before
-    // the matcher touches anything: the seeded finished inventory and the
-    // seeded dock schedule, copied field by field. Operator placements add
-    // their own copies in placeOrder / placeDeparture.
-    S.loadOrder.forEach(function (id) {
-      var L = S.loads[id];
-      if (L && L.source === 'inventory') {
-        S.manualLoads.push({ key: L.id, lane: L.lane, pallets: L.pallets, ageDays: L.ageDays || 0 });
+    // Two ways in, one day out: the built-in seed builds the day from
+    // the deterministic pattern; a data-set payload builds the same
+    // structures from documents loaded from outside the page.
+    function seedFromRng() {
+      // (1) Warehouse inventory: finished orders waiting, each with an age.
+      //     The demo seed shapes the lanes the way a real plant looks —
+      //     three heavy lanes and one light lane (DC / Baltimore).
+      var laneBag = [];
+      ['NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro', 'NYC Metro',
+       'Philadelphia', 'Philadelphia', 'Philadelphia', 'Philadelphia', 'Philadelphia', 'Philadelphia', 'Philadelphia',
+       'Boston', 'Boston', 'Boston', 'Boston', 'Boston', 'Boston', 'Boston',
+       'DC / Baltimore', 'DC / Baltimore'].forEach(function (l) { laneBag.push(l); });
+      for (var i = 0; i < laneBag.length; i++) {
+        var lane = laneBag[i];
+        addLoad({
+          business: BUSINESSES[Math.floor(rnd() * BUSINESSES.length)],
+          lane: lane,
+          pallets: lane === 'DC / Baltimore' ? 5 + Math.floor(rnd() * 5) : 8 + Math.floor(rnd() * 16),
+          windowStart: C.dayStart + Math.floor(rnd() * 180),
+          windowEnd: C.dayStart + 420 + Math.floor(rnd() * 300),
+          partialAllowed: rnd() < 0.6,
+          ageDays: Math.floor(rnd() * 5),
+          source: 'inventory'
+        });
       }
-    });
-    S.departures.forEach(function (dep) {
-      S.manualDeps.push({ key: dep.id, lane: dep.lane, box: dep.box, time: dep.time });
-    });
+      // (2) Production: machines with running orders and a queue behind each.
+      for (var m = 0; m < C.machines; m++) {
+        var machine = { id: 'M' + (m + 1), current: makeOrder('M' + (m + 1)), queue: [] };
+        machine.current.progress = 0.15 + rnd() * 0.5;
+        machine.queue.push(makeOrder(machine.id));
+        machine.queue.push(makeOrder(machine.id));
+        S.machines.push(machine);
+      }
+      // (3) Dock and trailer schedule: the plant sets the pickups; the engine
+      //     builds each load backward from its scheduled cutoff.
+      var sched = [
+        ['D1', 9 * 60 + 30, '45T'], ['D2', 10 * 60 + 15, '45T'],
+        ['D1', 11 * 60, '26B'], ['D2', 12 * 60, '26B'],
+        ['D1', 12 * 60 + 45, '45T'], ['D2', 13 * 60 + 45, '45T'],
+        ['D1', 14 * 60 + 30, '45T'], ['D2', 15 * 60 + 30, '45T']
+      ];
+      sched.forEach(function (row, idx) {
+        S.departures.push({
+          id: nextId('D'), dock: row[0], time: row[1],
+          lane: lanes[idx % lanes.length], box: row[2],
+          bol: false, departed: false, preLadenDone: false
+        });
+      });
+    }
+
+    function orderFromDoc(doc) {
+      return {
+        id: doc.id, machineId: doc.machineId, business: doc.business,
+        lane: doc.lane, pallets: doc.pallets,
+        windowStart: doc.windowStart, windowEnd: doc.windowEnd,
+        partialAllowed: !!doc.partialAllowed,
+        rate: doc.rate, progress: doc.progress || 0,
+        loadId: null, alerted85: false, alerted95: false,
+        materialsIn: 0, recyclingOut: 0
+      };
+    }
+
+    function seedFromPayload(payload) {
+      // (1) Warehouse inventory, in the order the documents arrive —
+      //     that order is the floor's order, and the matcher reads it.
+      requireSet(payload, 'warehouse-inventory').forEach(function (doc) {
+        addLoad({
+          id: doc.id, business: doc.business, lane: doc.lane, pallets: doc.pallets,
+          windowStart: doc.windowStart, windowEnd: doc.windowEnd,
+          partialAllowed: !!doc.partialAllowed, ageDays: doc.ageDays || 0,
+          readyTime: doc.readyTime != null ? doc.readyTime : C.dayStart,
+          source: 'inventory', state: 'inventory'
+        });
+      });
+      // (2) Production: each machine and the run on it now; the queue
+      //     behind each run comes from the upcoming-orders set.
+      var queues = {};
+      requireSet(payload, 'upcoming-orders').forEach(function (doc) {
+        (queues[doc.machineId] = queues[doc.machineId] || []).push(doc);
+      });
+      Object.keys(queues).forEach(function (mid) {
+        queues[mid].sort(function (a, b) { return (a.queuePosition || 0) - (b.queuePosition || 0); });
+      });
+      requireSet(payload, 'production').forEach(function (doc) {
+        S.machines.push({
+          id: doc.id,
+          current: doc.current ? orderFromDoc(doc.current) : null,
+          queue: (queues[doc.id] || []).map(orderFromDoc)
+        });
+      });
+      // (3) Dock and trailer schedule.
+      requireSet(payload, 'dock-trailer-schedule').forEach(function (doc) {
+        S.departures.push({
+          id: doc.id, dock: doc.dock, time: doc.time, lane: doc.lane, box: doc.box,
+          bol: false, departed: false, preLadenDone: false
+        });
+      });
+      // Ids handed out from here on continue past every id the payload
+      // brought in, so a load created during the day can never take
+      // the name of one that was placed.
+      var maxSuffix = 0;
+      var seen = S.loadOrder.slice();
+      S.machines.forEach(function (mach) {
+        if (mach.current) seen.push(mach.current.id);
+        mach.queue.forEach(function (o) { seen.push(o.id); });
+      });
+      S.departures.forEach(function (d) { seen.push(d.id); });
+      seen.forEach(function (id) {
+        var n = parseInt(String(id).slice(1), 10);
+        if (!isNaN(n) && n > maxSuffix) maxSuffix = n;
+      });
+      uid = maxSuffix + 1;
+    }
+
+    // Snapshot the day's placed inputs for the manual comparison, before
+    // the matcher touches anything: the finished inventory and the dock
+    // schedule, copied field by field. Operator placements add their own
+    // copies in placeOrder / placeDeparture.
+    function snapshotManual() {
+      S.loadOrder.forEach(function (id) {
+        var L = S.loads[id];
+        if (L && L.source === 'inventory') {
+          S.manualLoads.push({ key: L.id, lane: L.lane, pallets: L.pallets, ageDays: L.ageDays || 0 });
+        }
+      });
+      S.departures.forEach(function (dep) {
+        S.manualDeps.push({ key: dep.id, lane: dep.lane, box: dep.box, time: dep.time });
+      });
+    }
+
+    if (payload) seedFromPayload(payload); else seedFromRng();
+    snapshotManual();
 
     // ----- Core calculations -----
     function loadDuration(load, boxKey) {
-      var b = CONFIG.boxes[boxKey];
+      var b = C.boxes[boxKey];
       return load.pallets * b.loadRate + b.setup;
     }
 
     function planCost(dep, pallets) {
-      return CONFIG.laneRates[dep.lane][dep.box] * (1 + S.settings.fuelSurchargePct) + CONFIG.handlingPerPallet * pallets;
+      return C.laneRates[dep.lane][dep.box] * (1 + S.settings.fuelSurchargePct) + C.handlingPerPallet * pallets;
     }
 
     function candidateLoads(dep) {
@@ -230,7 +384,7 @@
     }
 
     function scorePlan(dep, chosen, pallets) {
-      var cap = CONFIG.boxes[dep.box].cap;
+      var cap = C.boxes[dep.box].cap;
       var fill = pallets / cap;
       var cost = planCost(dep, pallets);
       var ageSum = 0;
@@ -249,7 +403,7 @@
     };
 
     function evaluatePlan(dep, strategyName) {
-      var cap = CONFIG.boxes[dep.box].cap;
+      var cap = C.boxes[dep.box].cap;
       var cands = candidateLoads(dep).slice().sort(STRATEGIES[strategyName]);
       var chosen = [], pallets = 0, dur = 0;
       cands.forEach(function (L) {
@@ -311,7 +465,7 @@
             }
           });
           S.enginePlans[dep.id] = {
-            fill: best.pallets / CONFIG.boxes[dep.box].cap,
+            fill: best.pallets / C.boxes[dep.box].cap,
             cost: planCost(dep, best.pallets), pallets: best.pallets, strategy: bestName
           };
         } else {
@@ -353,7 +507,7 @@
       var used = {}, fillSum = 0, fillN = 0, costSum = 0, palletSum = 0;
       var deps = S.manualDeps.slice().sort(function (a, b) { return a.time - b.time; });
       deps.forEach(function (dep) {
-        var cap = CONFIG.boxes[dep.box].cap, pallets = 0;
+        var cap = C.boxes[dep.box].cap, pallets = 0;
         var pool = S.manualLoads
           .filter(function (L) { return !used[L.key] && L.lane === dep.lane; })
           .sort(function (a, b) { return b.ageDays - a.ageDays; });
@@ -436,7 +590,7 @@
         if (dep.lane !== newLoad.lane) return;
         var plan = S.enginePlans[dep.id];
         if (!plan) return;
-        var cap = CONFIG.boxes[dep.box].cap;
+        var cap = C.boxes[dep.box].cap;
         var space = cap - plan.pallets;
         if (space <= 0) return;
         var dupe = S.watcher.some(function (w) { return w.loadId === newLoad.id && w.depId === dep.id; });
@@ -445,7 +599,7 @@
         if (newLoad.pallets <= space) {
           var before = plan.cost / Math.max(plan.pallets, 1);
           var after = planCost(dep, plan.pallets + newLoad.pallets) / (plan.pallets + newLoad.pallets);
-          if (before > 0 && (before - after) / before >= CONFIG.watcherThreshold) {
+          if (before > 0 && (before - after) / before >= C.watcherThreshold) {
             var pct = Math.round(((before - after) / before) * 100);
             msg = 'A better out-of-process plan exists — adding ' + newLoad.id +
               ' (' + newLoad.business + ', ' + newLoad.pallets + ' pallets) to the ' + dep.dock + ' ' +
@@ -453,7 +607,7 @@
               '%. The plan the close set still stands until a human accepts.';
           }
         }
-        if (!msg && newLoad.windowEnd <= CONFIG.dayEnd && newLoad.windowEnd >= dep.time) {
+        if (!msg && newLoad.windowEnd <= C.dayEnd && newLoad.windowEnd >= dep.time) {
           var take = Math.min(space, newLoad.pallets);
           if (take >= 4 && (take === newLoad.pallets || newLoad.partialAllowed)) {
             msg = 'A better out-of-process plan exists — the plan the close set leaves ' + newLoad.id +
@@ -476,8 +630,8 @@
         var o = machine.current;
         if (!o) return;
         o.progress += o.rate * dt;
-        o.materialsIn += dt * 2;
-        o.recyclingOut += dt * 0.7;
+        o.materialsIn += dt * C.materialsInPerMinute;
+        o.recyclingOut += dt * C.recyclingOutPerMinute;
         if (!o.alerted85 && o.progress >= S.settings.alertPublish) {
           o.alerted85 = true;
           var ready = S.now + (1 - o.progress) / o.rate;
@@ -516,21 +670,22 @@
           if (done) watcherCheck(done);
         }
       });
-      if (!S.closeLogged && S.now >= CONFIG.closeTime) { S.closeLogged = true; doClose(); }
+      if (!S.closeLogged && S.now >= C.closeTime) { S.closeLogged = true; doClose(); }
       // (7) Common orders and runs: a standing daily run, placed on its
       //     recurring pattern — it completes mid-afternoon, after the close.
-      if (!S.commonRunDone && S.now >= 14 * 60 + 5) {
+      if (!S.commonRunDone && S.now >= commonRun.completesAt) {
         S.commonRunDone = true;
         var cr = addLoad({
-          business: 'Liberty Beverages (common run)', lane: 'DC / Baltimore', pallets: 8,
-          windowStart: 14 * 60, windowEnd: 15 * 60 + 55, partialAllowed: true,
+          business: commonRun.business, lane: commonRun.lane, pallets: commonRun.pallets,
+          windowStart: commonRun.windowStart, windowEnd: commonRun.windowEnd,
+          partialAllowed: commonRun.partialAllowed,
           readyTime: S.now, source: 'common run', state: 'inventory'
         });
         log('Common run completed — Liberty Beverages, DC / Baltimore, 8 pallets, window to ' + fmtTime(cr.windowEnd) + '.');
         watcherCheck(cr);
       }
       S.departures.forEach(function (dep) {
-        if (!dep.preLadenDone && S.now >= dep.time - CONFIG.preLadenMinutes && S.now < dep.time) doPreLaden(dep);
+        if (!dep.preLadenDone && S.now >= dep.time - C.preLadenMinutes && S.now < dep.time) doPreLaden(dep);
         if (!dep.departed && S.now >= dep.time) doDeparture(dep);
       });
     }
@@ -575,7 +730,7 @@
       if (accept && dep && load && !dep.departed) {
         w.status = 'accepted';
         var plan0 = S.enginePlans[dep.id] || { fill: 0, cost: 0, pallets: 0 };
-        var space = CONFIG.boxes[dep.box].cap - plan0.pallets;
+        var space = C.boxes[dep.box].cap - plan0.pallets;
         var moving = load;
         if (load.pallets > space && space >= 4 && load.partialAllowed) {
           // Partial rescue: part of the load moves; the rest stays behind.
@@ -592,7 +747,7 @@
         moving.state = dep.bol ? 'set to go' : 'set to move';
         plan0.pallets += moving.pallets;
         plan0.cost = planCost(dep, plan0.pallets);
-        plan0.fill = plan0.pallets / CONFIG.boxes[dep.box].cap;
+        plan0.fill = plan0.pallets / C.boxes[dep.box].cap;
         S.enginePlans[dep.id] = plan0;
         log('Watcher proposal accepted by the operator — ' + moving.id + ' joins the ' + dep.dock + ' ' + fmtTime(dep.time) + ' departure.');
       } else if (accept && dep && dep.departed) {
@@ -653,7 +808,7 @@
       // truck the by-hand planner gets to fill.
       S.manualDeps.push({ key: dep.id, lane: dep.lane, box: dep.box, time: dep.time });
       log('Variable placed — departure ' + dep.dock + ' ' + fmtTime(dep.time) + ' (' + dep.lane + ', ' +
-        CONFIG.boxes[dep.box].label + '). The equation resolves again.');
+        C.boxes[dep.box].label + '). The equation resolves again.');
       runMatcher('operator placed a departure');
       return dep;
     }
@@ -669,10 +824,13 @@
       return S.settings;
     }
 
-    runMatcher('morning fill');
+    // The morning fill is the day's first calculation. A caller that
+    // needs the day exactly as placed — the seed exporter — can hold it
+    // back with { deferMatcher: true }; every other caller gets it.
+    if (!(options && options.deferMatcher)) runMatcher('morning fill');
 
     return {
-      config: CONFIG,
+      config: C,
       state: S,
       tick: tick,
       runMatcher: runMatcher,
@@ -688,7 +846,7 @@
     };
   }
 
-  var api = { createEngine: createEngine, CONFIG: CONFIG, fmtTime: fmtTime };
+  var api = { createEngine: createEngine, CONFIG: CONFIG, fmtTime: fmtTime, COMMON_RUN: COMMON_RUN };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.LoadEngine = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1,0 +1,58 @@
+[
+  {
+    "id": "D40",
+    "dock": "D1",
+    "time": 570,
+    "lane": "NYC Metro",
+    "box": "45T"
+  },
+  {
+    "id": "D41",
+    "dock": "D2",
+    "time": 615,
+    "lane": "Philadelphia",
+    "box": "45T"
+  },
+  {
+    "id": "D42",
+    "dock": "D1",
+    "time": 660,
+    "lane": "Boston",
+    "box": "26B"
+  },
+  {
+    "id": "D43",
+    "dock": "D2",
+    "time": 720,
+    "lane": "DC / Baltimore",
+    "box": "26B"
+  },
+  {
+    "id": "D44",
+    "dock": "D1",
+    "time": 765,
+    "lane": "NYC Metro",
+    "box": "45T"
+  },
+  {
+    "id": "D45",
+    "dock": "D2",
+    "time": 825,
+    "lane": "Philadelphia",
+    "box": "45T"
+  },
+  {
+    "id": "D46",
+    "dock": "D1",
+    "time": 870,
+    "lane": "Boston",
+    "box": "45T"
+  },
+  {
+    "id": "D47",
+    "dock": "D2",
+    "time": 930,
+    "lane": "DC / Baltimore",
+    "box": "45T"
+  }
+]

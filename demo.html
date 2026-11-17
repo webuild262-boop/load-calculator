@@ -88,9 +88,12 @@
     <button class="wrench" id="btn-pull">⚒ Throw a wrench: pull an order</button>
     <button id="btn-mode-sim" class="mode-on" type="button">Simulation</button>
     <button id="btn-mode-rt" type="button">Real time</button>
+    <button id="btn-data-seeded" class="mode-on" type="button">Seeded day</button>
+    <button id="btn-data-live" type="button">Live data</button>
     <div class="clock"><span id="clock">7:00 AM</span> <small id="phase">morning fill</small></div>
   </div>
   <p class="mode-note" id="mode-note" hidden></p>
+  <p class="mode-note" id="data-note" hidden></p>
 
   <div class="counters" id="counters"></div>
 
@@ -162,9 +165,9 @@
 <!-- Script URLs carry a version token (?v=) so a browser can never pair this
      page with a cached older script. Bump the token on ALL THREE scripts
      whenever any one of them changes. -->
-<script src="packages/variable-engine/engine.js?v=20261117-3"></script>
-<script src="apps/processing/processing.js?v=20261117-3"></script>
-<script src="apps/delivery/delivery.js?v=20261117-3"></script>
+<script src="packages/variable-engine/engine.js?v=20261117-4"></script>
+<script src="apps/processing/processing.js?v=20261117-4"></script>
+<script src="apps/delivery/delivery.js?v=20261117-4"></script>
 <script>
 (function () {
   var engine = LoadEngine.createEngine(262);
@@ -176,6 +179,77 @@
     ship: document.getElementById('ship-board'), dots: document.getElementById('dot-board'),
     log: document.getElementById('log'), watcher: document.getElementById('watcher')
   };
+
+  // ----- Data source -----
+  // API base for the Live data source: the seven placed data sets are
+  // fetched from <API_BASE>/datasets/<name>. The default is the
+  // relative /api path — where the data-set API serves them when it is
+  // linked behind this site. Change this one constant to point the
+  // page at an API hosted somewhere else.
+  var API_BASE = '/api';
+  var DATASET_NAMES = ['warehouse-inventory', 'production', 'dock-trailer-schedule',
+    'upcoming-orders', 'cost-table', 'recycling', 'common-orders-and-runs'];
+  var dataSource = 'seeded'; // 'seeded' | 'live'
+  var dayPayload = null;     // the loaded data sets, when dataSource is 'live'
+
+  function showDataNote(text) {
+    var note = document.getElementById('data-note');
+    note.hidden = false;
+    note.textContent = text;
+  }
+  function markDataButtons() {
+    document.getElementById('btn-data-seeded').classList.toggle('mode-on', dataSource === 'seeded');
+    document.getElementById('btn-data-live').classList.toggle('mode-on', dataSource === 'live');
+  }
+  // Build the day from the current source. If the loaded data cannot
+  // be used, say so on the board and build the seeded day instead —
+  // the page never stands broken.
+  function buildEngine() {
+    if (dataSource === 'live' && dayPayload) {
+      try {
+        return LoadEngine.createEngine(262, dayPayload);
+      } catch (err) {
+        showDataNote('Live data could not be used (' + err.message + ') — showing the seeded day instead.');
+        dataSource = 'seeded'; dayPayload = null; markDataButtons();
+      }
+    }
+    return LoadEngine.createEngine(262);
+  }
+  function setDataSource(next) {
+    if (next === 'seeded') {
+      if (dataSource === 'seeded') { render(); return; }
+      dataSource = 'seeded'; dayPayload = null;
+      markDataButtons();
+      showDataNote('Seeded day — the day built into the page.');
+      startDay();
+      return;
+    }
+    var btn = document.getElementById('btn-data-live');
+    btn.disabled = true;
+    showDataNote('Loading the placed data sets from ' + API_BASE + ' …');
+    Promise.all(DATASET_NAMES.map(function (name) {
+      return fetch(API_BASE + '/datasets/' + name).then(function (r) {
+        if (!r.ok) throw new Error(name + ' answered ' + r.status);
+        return r.json();
+      }).then(function (docs) { return [name, docs]; });
+    })).then(function (pairs) {
+      var payload = {};
+      pairs.forEach(function (p) { payload[p[0]] = p[1]; });
+      dayPayload = payload; dataSource = 'live';
+      btn.disabled = false;
+      markDataButtons();
+      showDataNote('Live data — the day on the board was built from the loaded data sets.');
+      startDay();
+    }).catch(function (err) {
+      btn.disabled = false;
+      dataSource = 'seeded'; dayPayload = null;
+      markDataButtons();
+      showDataNote('Live data could not be loaded (' + err.message + ') — showing the seeded day instead.');
+      startDay();
+    });
+  }
+  document.getElementById('btn-data-seeded').addEventListener('click', function () { setDataSource('seeded'); });
+  document.getElementById('btn-data-live').addEventListener('click', function () { setDataSource('live'); });
 
   // ----- Time source -----
   // The single clock source for Real time mode: minutes after local
@@ -246,7 +320,7 @@
   // silently to the current local time, so the board shows the day as
   // it stands at this hour. Restart runs this same path.
   function startDay() {
-    engine = LoadEngine.createEngine(262);
+    engine = buildEngine();
     entries.length = 0;
     document.getElementById('ps-pub').value = 85;
     document.getElementById('ps-fin').value = 95;
@@ -399,7 +473,9 @@
     getEngine: function () { return engine; },
     getMode: function () { return mode; },
     setMode: setMode,
-    syncRealTime: syncRealTime
+    syncRealTime: syncRealTime,
+    getDataSource: function () { return dataSource; },
+    setDataSource: setDataSource
   };
   render();
 })();

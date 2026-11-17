@@ -1,0 +1,75 @@
+[
+  {
+    "id": "plant-settings",
+    "dayStart": 420,
+    "closeTime": 810,
+    "dayEnd": 960,
+    "alertPublish": 0.85,
+    "alertFinal": 0.95,
+    "watcherThreshold": 0.05,
+    "preLadenMinutes": 15,
+    "handlingPerPallet": 6,
+    "fuelSurchargePct": 0.12,
+    "materialsInPerMinute": 2,
+    "recyclingOutPerMinute": 0.7,
+    "machines": 5,
+    "docks": [
+      "D1",
+      "D2"
+    ]
+  },
+  {
+    "id": "lane:NYC Metro",
+    "kind": "laneRate",
+    "lane": "NYC Metro",
+    "rates": {
+      "45T": 682,
+      "26B": 566
+    }
+  },
+  {
+    "id": "lane:Philadelphia",
+    "kind": "laneRate",
+    "lane": "Philadelphia",
+    "rates": {
+      "45T": 555,
+      "26B": 461
+    }
+  },
+  {
+    "id": "lane:Boston",
+    "kind": "laneRate",
+    "lane": "Boston",
+    "rates": {
+      "45T": 700,
+      "26B": 581
+    }
+  },
+  {
+    "id": "lane:DC / Baltimore",
+    "kind": "laneRate",
+    "lane": "DC / Baltimore",
+    "rates": {
+      "45T": 855,
+      "26B": 710
+    }
+  },
+  {
+    "id": "box:45T",
+    "kind": "box",
+    "box": "45T",
+    "label": "45' trailer",
+    "cap": 22,
+    "loadRate": 2.5,
+    "setup": 10
+  },
+  {
+    "id": "box:26B",
+    "kind": "box",
+    "box": "26B",
+    "label": "26' box truck",
+    "cap": 12,
+    "loadRate": 2,
+    "setup": 8
+  }
+]

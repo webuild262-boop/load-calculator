@@ -1,0 +1,77 @@
+[
+  {
+    "id": "M1",
+    "current": {
+      "id": "O25",
+      "machineId": "M1",
+      "business": "Acme Packaging",
+      "lane": "NYC Metro",
+      "pallets": 15,
+      "windowStart": 725,
+      "windowEnd": 923,
+      "partialAllowed": false,
+      "rate": 0.0054926968729123475,
+      "progress": 0.6434019282227382
+    }
+  },
+  {
+    "id": "M2",
+    "current": {
+      "id": "O28",
+      "machineId": "M2",
+      "business": "Metro Pharma",
+      "lane": "Boston",
+      "pallets": 15,
+      "windowStart": 585,
+      "windowEnd": 985,
+      "partialAllowed": true,
+      "rate": 0.007634024722501636,
+      "progress": 0.6479135622270406
+    }
+  },
+  {
+    "id": "M3",
+    "current": {
+      "id": "O31",
+      "machineId": "M3",
+      "business": "Metro Pharma",
+      "lane": "Boston",
+      "pallets": 15,
+      "windowStart": 703,
+      "windowEnd": 1090,
+      "partialAllowed": true,
+      "rate": 0.004588028997182846,
+      "progress": 0.5741735638352111
+    }
+  },
+  {
+    "id": "M4",
+    "current": {
+      "id": "O34",
+      "machineId": "M4",
+      "business": "Garden State Apparel",
+      "lane": "Boston",
+      "pallets": 17,
+      "windowStart": 627,
+      "windowEnd": 1024,
+      "partialAllowed": true,
+      "rate": 0.005679574109613896,
+      "progress": 0.44508932563476267
+    }
+  },
+  {
+    "id": "M5",
+    "current": {
+      "id": "O37",
+      "machineId": "M5",
+      "business": "Acme Packaging",
+      "lane": "Boston",
+      "pallets": 18,
+      "windowStart": 737,
+      "windowEnd": 951,
+      "partialAllowed": false,
+      "rate": 0.004980060464702547,
+      "progress": 0.4112735329894349
+    }
+  }
+]

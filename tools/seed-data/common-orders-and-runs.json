@@ -1,0 +1,12 @@
+[
+  {
+    "id": "common-run:Liberty Beverages (common run)",
+    "business": "Liberty Beverages (common run)",
+    "lane": "DC / Baltimore",
+    "pallets": 8,
+    "completesAt": 845,
+    "windowStart": 840,
+    "windowEnd": 955,
+    "partialAllowed": true
+  }
+]
