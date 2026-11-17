@@ -1,7 +1,7 @@
 /*
  * PROCESSING — the production application.
  * Its question: what runs, in what order, finishing when?
- * Reads the variable engine; holds no shipping logic.
+ * Reads the variable engine; holds no delivery logic.
  */
 (function () {
   'use strict';

@@ -5,7 +5,7 @@ These rules bind every agent and every session working in this repository.
 ## The boundary
 
 - The variable engine (`packages/variable-engine`) holds all calculation logic. Applications consume it; they never re-implement it.
-- Processing logic never enters Shipping, and Shipping logic never enters Processing. Neither application's logic enters the engine.
+- Processing logic never enters Delivery, and Delivery logic never enters Processing. Neither application's logic enters the engine.
 - The engine is industry-blind and function-blind. Industry specifics live in placed variables and presets, never in engine code.
 
 ## The design's own words

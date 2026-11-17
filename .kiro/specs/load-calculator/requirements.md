@@ -5,12 +5,12 @@ The governing definition, in the author's words: the Load Calculator is a variab
 ## 1. Data sets
 
 1.1 Each variable group SHALL be its own data set with its own calculation. No set reaches inside another; the matcher reads all sets.
-1.2 This case places seven data sets: Warehouse Inventory, Production, Gate and Trailer Schedule, Upcoming Orders, Cost Table, Recycling, and Common Orders and Runs. The count belongs to the case, not the calculator.
+1.2 This case places seven data sets: Warehouse Inventory, Production, Dock and Trailer Schedule, Upcoming Orders, Cost Table, Recycling, and Common Orders and Runs. The count belongs to the case, not the calculator.
 1.3 Warehouse Inventory entries SHALL carry: order ID, business, destination lane, pallets, delivery window (earliest and latest), date finished, days waiting, partial-allowed flag. Its calculation is age and urgency ranking.
 1.4 Production SHALL track each running order's percent complete and machine rate. Its calculation is projected ready time, with variance that shrinks as completion nears.
-1.5 The Gate and Trailer Schedule SHALL carry each scheduled pickup's gate, lane, box type, scheduled arrival, and scheduled departure. Vehicles are third-party tractor-trailers and box trucks arriving on a schedule the business sets.
+1.5 The Dock and Trailer Schedule SHALL carry each scheduled pickup's dock, lane, box type, scheduled arrival, and scheduled departure. Vehicles are third-party tractor-trailers and box trucks arriving on a schedule the business sets.
 1.6 The Cost Table SHALL carry rate per box type per lane and a per-pallet handling figure.
-1.7 Recycling SHALL tally materials in versus recycling out per order and per machine. When outbound waste reaches a full pallet, it SHALL become a schedulable pickup the engine can place into a light gate window.
+1.7 Recycling SHALL tally materials in versus recycling out per order and per machine. When outbound waste reaches a full pallet, it SHALL become a schedulable pickup the engine can place into a light dock window.
 1.8 Common Orders and Runs SHALL be placed as standing entries on their recurring pattern and SHALL feed the queue and the matcher like any other order.
 
 ## 2. The load variable
@@ -25,15 +25,15 @@ The governing definition, in the author's words: the Load Calculator is a variab
 3.2 At 95 percent complete, the engine SHALL run the final ready-time calculation. Plans MAY be built on the calculated time as firm.
 3.3 The alert percentages are placed variables, changeable at will.
 
-## 4. Gate placement
+## 4. Dock placement
 
-4.1 Placement SHALL be a time equation: loading duration = pallets × load rate for the box type + setup time + loading already queued at that gate.
-4.2 A load SHALL be placed on a scheduled pickup only if ready time + loading duration is at or before the scheduled departure, with no overlap against the load ahead of it at that gate.
+4.1 Placement SHALL be a time equation: loading duration = pallets × load rate for the box type + setup time + loading already queued at that dock.
+4.2 A load SHALL be placed on a scheduled pickup only if ready time + loading duration is at or before the scheduled departure, with no overlap against the load ahead of it at that dock.
 
 ## 5. The variation engine
 
-5.1 The engine SHALL enumerate candidate plans across loads × box types × gates × scheduled departures, including partial splits.
-5.2 The engine SHALL prune any variation that violates lane, delivery window, box capacity, or the gate time equation before scoring.
+5.1 The engine SHALL enumerate candidate plans across loads × box types × docks × scheduled departures, including partial splits.
+5.2 The engine SHALL prune any variation that violates lane, delivery window, box capacity, or the dock time equation before scoring.
 5.3 Each surviving variation SHALL be scored on truck fill percentage, cost per pallet, delivery-window slack, and inventory age. The best total score wins.
 5.4 The engine SHALL re-run on each 85 or 95 alert, each wrench event, each operator override, and the daily planning run.
 5.5 The interface SHALL show a live variations-evaluated counter, the top three candidate plans with scores, and one line stating why the winner won.
@@ -50,7 +50,7 @@ The governing definition, in the author's words: the Load Calculator is a variab
 7.1 Through the day the data sets update quietly; the plan does not thrash.
 7.2 The cycle SHALL close at a placed time (demo configuration: 1:30 PM, against shifts starting 7:00 AM and running to 3:00 PM). At the close, loads go out per customer instructions: a load that ships gets its bill of lading, and a job is placed in inventory only when that is the customer's call. Inventory is the customer's decision, never the system's default.
 7.3 The close of the current day is for the next day: the setups it produces are for the following day. Whatever is set up ready to go SHALL have been confirmed full before it is set to go.
-7.4 The production setup SHALL be the staging mechanism for shipping: Processing considers the shipping plan in its lineup, so loads reach setup in the order and timing Shipping planned. Physical staging and forklift work are out of scope.
+7.4 The production setup SHALL be the staging mechanism for shipping: Processing considers the shipping plan in its lineup, so loads reach setup in the order and timing Delivery planned. Physical staging and forklift work are out of scope.
 
 ## 8. Laden safeguards
 
@@ -70,19 +70,19 @@ The governing definition, in the author's words: the Load Calculator is a variab
 
 ## 11. Wrenches and overrides
 
-11.1 Hot order: a rush order SHALL skip the line, take production priority, shift projected ready times behind it, and trigger re-scoring of affected gate plans. The cost of the disruption SHALL be shown.
+11.1 Hot order: a rush order SHALL skip the line, take production priority, shift projected ready times behind it, and trigger re-scoring of affected dock plans. The cost of the disruption SHALL be shown.
 11.2 Pulled order: a pulled order's pallets SHALL leave the plan; the engine SHALL backfill from inventory first, then from a partial ahead, or the trailer leaves light with the cost shown.
 11.3 Any load SHALL carry a drop-down control to change its destination or its size. An override recalculates the affected set at once. After the laden, overrides run in correction mode.
 11.4 Small-job matching: when a smaller job comes out with an upcoming delivery date, the system SHALL queue an operator call to confirm the exact delivery window, SHALL scan inventory before the last day for anything that can ride with it (same lane, compatible window), and SHALL queue a second call to confirm delivery — even a partial of a full order — when a match is found.
 
 ## 12. Telemetry
 
-12.1 Every input the system runs on — alert percentages, load rates, box capacities, cost tables, lanes, gate count, planning-run and close time, volatility limits, watcher threshold, schedules as entered — SHALL be changeable by the operator at any time, and the engine SHALL recalculate from the change.
+12.1 Every input the system runs on — alert percentages, load rates, box capacities, cost tables, lanes, dock count, planning-run and close time, volatility limits, watcher threshold, schedules as entered — SHALL be changeable by the operator at any time, and the engine SHALL recalculate from the change.
 12.2 The single exception is a physical fact already in motion: a truck that is coming in.
 
 ## 13. Demo configuration
 
-13.1 Machines: 5. Gates: 2. Orders: 10–25 pallets each, from several businesses and lanes. Inventory: 100 seeded entries.
+13.1 Machines: 5. Docks: 2. Orders: 10–25 pallets each, from several businesses and lanes. Inventory: 100 seeded entries.
 13.2 Box types: 45-foot trailer, 22 pallets loaded straight (26 turned); 26-foot box truck, 12 pallets. Pallet basis: standard 40 × 48 inch.
 13.3 A shift clock SHALL run accelerated time: a full operating day in about three minutes.
 13.4 Engine-on versus engine-off comparison counters (cost, average fill) SHALL be visible throughout.

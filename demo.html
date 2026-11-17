@@ -41,6 +41,23 @@
   .board { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 14px; min-height: 54px; }
   .dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; margin: 3px; vertical-align: middle; }
   .watcher-item { border: 1px solid #9e6a03; background: #2d2003; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+  .panel { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 14px 16px; }
+  .pforms { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .pforms { grid-template-columns: 1fr; } }
+  .panel fieldset { border: 1px solid #30363d; border-radius: 10px; margin: 0; padding: 10px 12px 12px; }
+  .panel legend { color: #7ee787; font-size: .92rem; padding: 0 6px; }
+  .panel label { display: block; color: #8b949e; font-size: .82rem; margin: 7px 0 2px; }
+  .panel input[type="text"], .panel input[type="number"], .panel input[type="time"], .panel select {
+    width: 100%; box-sizing: border-box; background: #0d1117; color: #e6edf3;
+    border: 1px solid #30363d; border-radius: 6px; padding: 6px 8px; font-size: .92rem; margin-top: 2px; }
+  .panel label.chk { display: flex; gap: 8px; align-items: center; color: #c9d1d9; font-size: .88rem; margin-top: 10px; }
+  .panel fieldset button { margin-top: 12px; width: 100%; background: #238636; border-color: #238636; color: #fff; font-weight: 600; }
+  .panel fieldset button:hover { background: #2ea043; }
+  .panel .note { color: #8b949e; font-size: .86rem; margin: 12px 0 0; }
+  .entry { border: 1px solid #1f6feb; background: #0d1b2e; border-radius: 10px; padding: 10px 14px; margin-top: 10px; }
+  .entry .e-title { font-weight: 700; color: #9ecbff; }
+  .entry .e-at { color: #8b949e; font-size: .8rem; font-weight: 400; }
+  .entry ul { margin: 4px 0 0; padding-left: 18px; color: #c9d1d9; font-size: .9rem; }
   .logbox { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 12px 14px; font-size: .9rem; }
   .log-t { color: #9ecbff; }
   .dim { color: #8b949e; }
@@ -70,13 +87,54 @@
 
   <div class="counters" id="counters"></div>
 
+  <h2>Place a variable <span>— you create the equation; it resolves again every time a variable is added or changed</span></h2>
+  <div class="panel">
+    <div class="pforms">
+      <fieldset>
+        <legend>New order — an entry for the matcher</legend>
+        <label>What it is (name / customer)<input id="pv-name" type="text" value="Placed order"></label>
+        <label>Destination lane<select id="pv-lane"></select></label>
+        <label>Pallets — quantity<input id="pv-pallets" type="number" min="1" max="60" value="14"></label>
+        <label>Weight per pallet (lb)<input id="pv-weight" type="number" min="0" step="10" value="900"></label>
+        <label>Ready time<input id="pv-ready" type="time" value="09:00"></label>
+        <label>Deliver by<input id="pv-by" type="time" value="16:00"></label>
+        <label class="chk"><input id="pv-partial" type="checkbox" checked> Partial load allowed</label>
+        <label>Liquid — volume in gallons (optional)<input id="pv-volume" type="number" min="0" placeholder="—"></label>
+        <label>Chemical — form (optional)<select id="pv-chem"><option value="">—</option><option value="solid">solid</option><option value="liquid">liquid</option></select></label>
+        <label>Chemical — amount (optional)<input id="pv-chemamt" type="text" placeholder="—"></label>
+        <button id="btn-place-order" type="button">Place this order</button>
+      </fieldset>
+      <fieldset>
+        <legend>New departure — an entry for the schedule</legend>
+        <label>Departure time<input id="pd-time" type="time" value="13:15"></label>
+        <label>Destination lane<select id="pd-lane"></select></label>
+        <label>Trailer<select id="pd-box"><option value="45T">45&#8242; trailer — 22 pallets</option><option value="26B">26&#8242; box truck — 12 pallets</option></select></label>
+        <label>Dock<select id="pd-dock"><option value="D1">Dock 1</option><option value="D2">Dock 2</option></select></label>
+        <button id="btn-place-dep" type="button">Place this departure</button>
+      </fieldset>
+      <fieldset>
+        <legend>Thresholds and rates — placed settings</legend>
+        <label>Publish alert (%) — projected ready time goes to the matcher<input id="ps-pub" type="number" min="1" max="99" value="85"></label>
+        <label>Final alert (%) — the final ready-time calculation runs<input id="ps-fin" type="number" min="2" max="100" value="95"></label>
+        <label>Fuel surcharge (%) — rides on every lane rate<input id="ps-fsc" type="number" min="0" max="60" value="12"></label>
+        <button id="btn-place-settings" type="button">Apply these settings</button>
+      </fieldset>
+    </div>
+    <p class="note">Each entry states what it is, and breaks down by the parameters it carries — quantity, size,
+    weight, and time, and the wider measures a scenario needs: liquid by volume, and chemical as a family
+    (solid, liquid). The demo engine plans an order by its pallets, lane, ready time, and delivery window;
+    the weight, volume, and chemical breakdowns ride on the entry as placed measures, ready for a scenario
+    that runs on them. The alert thresholds are placed values too — 85 and 95 are this demo's, not constants.</p>
+    <div id="entries"></div>
+  </div>
+
   <div class="grid">
     <section>
       <h2>Processing <span>— what runs, in what order, finishing when</span></h2>
       <div id="proc-board"></div>
     </section>
     <section>
-      <h2>Shipping <span>— what goes out, in which box, from which gate, at what time, at what cost</span></h2>
+      <h2>Delivery <span>— what goes out, in which box, from which dock, at what time, at what cost</span></h2>
       <div id="ship-board"></div>
     </section>
   </div>
@@ -91,12 +149,12 @@
   <div class="logbox" id="log"></div>
 
   <div class="status">Live demo — simulated feeds; the core accepts real feeds unchanged. Lane rates grounded in a real Q1 2026 plant freight review.
-  Demo configuration: 5 machines, 2 gates, the close at 1:30 PM. Built for Kiroween 2026 · Skeleton Crew · Hosted on Microsoft Azure.</div>
+  Demo configuration: 5 machines, 2 docks, the close at 1:30 PM. Built for Kiroween 2026 · Skeleton Crew · Hosted on Microsoft Azure.</div>
 </main>
 
 <script src="packages/variable-engine/engine.js"></script>
 <script src="apps/processing/processing.js"></script>
-<script src="apps/shipping/shipping.js"></script>
+<script src="apps/delivery/delivery.js"></script>
 <script>
 (function () {
   var engine = LoadEngine.createEngine(262);
@@ -111,11 +169,11 @@
     els.clock.textContent = engine.fmtTime(engine.state.now);
     els.phase.textContent = engine.state.now >= engine.config.dayEnd ? 'day complete'
       : (engine.state.closed ? 'plan set at the close — watcher on duty' : 'morning fill');
-    ShippingUI.renderCounters(engine, els.counters);
+    DeliveryUI.renderCounters(engine, els.counters);
     ProcessingUI.render(engine, els.proc);
-    ShippingUI.renderDepartures(engine, els.ship);
-    ShippingUI.renderBoard(engine, els.dots);
-    ShippingUI.renderLog(engine, els.log, els.watcher);
+    DeliveryUI.renderDepartures(engine, els.ship);
+    DeliveryUI.renderBoard(engine, els.dots);
+    DeliveryUI.renderLog(engine, els.log, els.watcher);
   }
   setInterval(function () {
     if (!playing) return;
@@ -133,10 +191,112 @@
   });
   document.getElementById('btn-reset').addEventListener('click', function () {
     engine = LoadEngine.createEngine(262);
+    entries.length = 0;
+    document.getElementById('ps-pub').value = 85;
+    document.getElementById('ps-fin').value = 95;
+    document.getElementById('ps-fsc').value = 12;
+    renderEntries();
     render();
   });
   document.getElementById('btn-hot').addEventListener('click', function () { engine.hotOrder(); render(); });
   document.getElementById('btn-pull').addEventListener('click', function () { engine.pullOrder(); render(); });
+
+  // ----- Place a variable: the operator creates the entries -----
+  var entries = [];
+  function escT(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  function renderEntries() {
+    document.getElementById('entries').innerHTML = entries.map(function (e) {
+      return '<div class="entry"><span class="e-title">' + escT(e.title) + '</span> ' +
+        '<span class="e-at">placed at ' + e.at + '</span><ul>' +
+        e.lines.map(function (l) { return '<li>' + escT(l) + '</li>'; }).join('') + '</ul></div>';
+    }).join('');
+  }
+  function addEntry(title, lines) {
+    entries.unshift({ title: title, lines: lines, at: engine.fmtTime(engine.state.now) });
+    renderEntries();
+  }
+  function timeVal(id) {
+    var v = document.getElementById(id).value;
+    if (!v) return null;
+    var p = v.split(':');
+    return (+p[0]) * 60 + (+p[1]);
+  }
+  function numVal(id) {
+    var v = parseFloat(document.getElementById(id).value);
+    return isNaN(v) ? null : v;
+  }
+  Object.keys(LoadEngine.CONFIG.laneRates).forEach(function (lane) {
+    ['pv-lane', 'pd-lane'].forEach(function (id) {
+      var opt = document.createElement('option');
+      opt.value = lane; opt.textContent = lane;
+      document.getElementById(id).appendChild(opt);
+    });
+  });
+  document.getElementById('btn-place-order').addEventListener('click', function () {
+    var pallets = Math.max(1, Math.round(numVal('pv-pallets') || 1));
+    var wpp = numVal('pv-weight');
+    var ready = timeVal('pv-ready'); if (ready == null) ready = engine.state.now;
+    var by = timeVal('pv-by'); if (by == null) by = engine.config.dayEnd;
+    var vol = numVal('pv-volume');
+    var chem = document.getElementById('pv-chem').value || null;
+    var chemAmt = document.getElementById('pv-chemamt').value || null;
+    var name = document.getElementById('pv-name').value || 'Placed order';
+    var partial = document.getElementById('pv-partial').checked;
+    var load = engine.placeOrder({
+      business: name,
+      lane: document.getElementById('pv-lane').value,
+      pallets: pallets,
+      weightPerPallet: wpp,
+      readyTime: ready,
+      windowEnd: by,
+      partialAllowed: partial,
+      volumeGallons: vol,
+      chemicalForm: chem,
+      chemicalAmount: chemAmt
+    });
+    var lines = ['Quantity: ' + pallets + ' pallets'];
+    if (wpp) lines.push('Weight: ' + wpp.toLocaleString() + ' lb per pallet · ' + (wpp * pallets).toLocaleString() + ' lb total');
+    lines.push('Destination: ' + load.lane);
+    lines.push('Time: ready ' + engine.fmtTime(ready) + ' · deliver by ' + engine.fmtTime(by));
+    lines.push(partial ? 'Partial loads allowed' : 'Ships whole only');
+    if (vol) lines.push('Liquid: ' + vol.toLocaleString() + ' gallons by volume');
+    if (chem) lines.push('Chemical: ' + chem + (chemAmt ? ' · ' + chemAmt : ''));
+    lines.push('Engine state now: ' + load.state + (load.assignedTo ? ' · assigned to a departure' : ' · waiting for a departure'));
+    addEntry('Order entry — ' + load.id + ': ' + name, lines);
+    render();
+  });
+  document.getElementById('btn-place-dep').addEventListener('click', function () {
+    var t = timeVal('pd-time'); if (t == null) t = engine.state.now + 60;
+    var boxKey = document.getElementById('pd-box').value;
+    var dep = engine.placeDeparture({
+      time: t,
+      lane: document.getElementById('pd-lane').value,
+      box: boxKey,
+      dock: document.getElementById('pd-dock').value
+    });
+    var box = engine.config.boxes[boxKey];
+    addEntry('Departure entry — ' + dep.id, [
+      'Time: ' + engine.fmtTime(dep.time),
+      'Destination: ' + dep.lane,
+      'Size: ' + box.label + ' — ' + box.cap + ' pallets',
+      'Placed at: dock ' + dep.dock
+    ]);
+    render();
+  });
+  document.getElementById('btn-place-settings').addEventListener('click', function () {
+    var pub = numVal('ps-pub'), fin = numVal('ps-fin'), fsc = numVal('ps-fsc');
+    var s = engine.placeSettings({
+      alertPublish: pub == null ? null : pub / 100,
+      alertFinal: fin == null ? null : fin / 100,
+      fuelSurchargePct: fsc == null ? null : fsc / 100
+    });
+    addEntry('Settings entry — thresholds and rates', [
+      'Publish alert: ' + Math.round(s.alertPublish * 100) + '% — the projected ready time is published to the matcher',
+      'Final alert: ' + Math.round(s.alertFinal * 100) + '% — the final ready-time calculation runs',
+      'Fuel surcharge: ' + Math.round(s.fuelSurchargePct * 100) + '% — rides on every lane rate in the cost calculation'
+    ]);
+    render();
+  });
   window.__watcherDecision = function (i, accept) { engine.watcherDecision(i, accept); render(); };
   render();
 })();

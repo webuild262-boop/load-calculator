@@ -40,7 +40,7 @@
       'DC / Baltimore': { '45T': 855, '26B': 710 }
     },
     machines: 5,
-    gates: ['G1', 'G2']
+    docks: ['D1', 'D2']
   };
 
   var LANES = Object.keys(CONFIG.laneRates);
@@ -87,7 +87,15 @@
       shippedPallets: 0,
       enginePlans: {},  // departureId -> {fill, cost, pallets}
       baseline: { fillSum: 0, fillN: 0, costSum: 0, palletSum: 0 },
-      hotUsed: false
+      hotUsed: false,
+      // Operator-placed settings for this run of the day. They start at the
+      // CONFIG values; placing new ones changes this run only, and a fresh
+      // day starts from the placed defaults again.
+      settings: {
+        alertPublish: CONFIG.alertPublish,
+        alertFinal: CONFIG.alertFinal,
+        fuelSurchargePct: CONFIG.fuelSurchargePct
+      }
     };
 
     function log(text) {
@@ -156,17 +164,17 @@
       machine.queue.push(makeOrder(machine.id));
       S.machines.push(machine);
     }
-    // (3) Gate and trailer schedule: the plant sets the pickups; the engine
+    // (3) Dock and trailer schedule: the plant sets the pickups; the engine
     //     builds each load backward from its scheduled cutoff.
     var sched = [
-      ['G1', 9 * 60 + 30, '45T'], ['G2', 10 * 60 + 15, '45T'],
-      ['G1', 11 * 60, '26B'], ['G2', 12 * 60, '26B'],
-      ['G1', 12 * 60 + 45, '45T'], ['G2', 13 * 60 + 45, '45T'],
-      ['G1', 14 * 60 + 30, '45T'], ['G2', 15 * 60 + 30, '45T']
+      ['D1', 9 * 60 + 30, '45T'], ['D2', 10 * 60 + 15, '45T'],
+      ['D1', 11 * 60, '26B'], ['D2', 12 * 60, '26B'],
+      ['D1', 12 * 60 + 45, '45T'], ['D2', 13 * 60 + 45, '45T'],
+      ['D1', 14 * 60 + 30, '45T'], ['D2', 15 * 60 + 30, '45T']
     ];
     sched.forEach(function (row, idx) {
       S.departures.push({
-        id: nextId('D'), gate: row[0], time: row[1],
+        id: nextId('D'), dock: row[0], time: row[1],
         lane: LANES[idx % LANES.length], box: row[2],
         bol: false, departed: false, preLadenDone: false
       });
@@ -179,7 +187,7 @@
     }
 
     function planCost(dep, pallets) {
-      return CONFIG.laneRates[dep.lane][dep.box] * (1 + CONFIG.fuelSurchargePct) + CONFIG.handlingPerPallet * pallets;
+      return CONFIG.laneRates[dep.lane][dep.box] * (1 + S.settings.fuelSurchargePct) + CONFIG.handlingPerPallet * pallets;
     }
 
     function candidateLoads(dep) {
@@ -350,7 +358,7 @@
       dep.preLadenDone = true;
       // Confirmation calculation: the plan is checked current, and anything
       // completing inside the next 15 minutes is folded in before the laden.
-      runMatcher('pre-laden confirmation for ' + dep.gate + ' ' + fmtTime(dep.time));
+      runMatcher('pre-laden confirmation for ' + dep.dock + ' ' + fmtTime(dep.time));
       dep.bol = true;
       S.loadOrder.forEach(function (id) {
         var L = S.loads[id];
@@ -358,7 +366,7 @@
           L.state = 'set to go';
         }
       });
-      log('Bill of lading issued — ' + dep.gate + ' ' + fmtTime(dep.time) + ' (' + dep.lane + '). Dispatch runs from the bill.');
+      log('Bill of lading issued — ' + dep.dock + ' ' + fmtTime(dep.time) + ' (' + dep.lane + '). Dispatch runs from the bill.');
     }
 
     function doDeparture(dep) {
@@ -371,7 +379,7 @@
         }
       });
       S.shippedCount += n; S.shippedPallets += pallets;
-      if (n) log(dep.gate + ' ' + fmtTime(dep.time) + ' departed — ' + n + ' load(s), ' + pallets + ' pallets shipped.');
+      if (n) log(dep.dock + ' ' + fmtTime(dep.time) + ' departed — ' + n + ' load(s), ' + pallets + ' pallets shipped.');
     }
 
     // ----- Watcher: after the close, speak only when the numbers earn it.
@@ -399,7 +407,7 @@
           if (before > 0 && (before - after) / before >= CONFIG.watcherThreshold) {
             var pct = Math.round(((before - after) / before) * 100);
             msg = 'A better out-of-process plan exists — adding ' + newLoad.id +
-              ' (' + newLoad.business + ', ' + newLoad.pallets + ' pallets) to the ' + dep.gate + ' ' +
+              ' (' + newLoad.business + ', ' + newLoad.pallets + ' pallets) to the ' + dep.dock + ' ' +
               fmtTime(dep.time) + ' ' + dep.lane + ' departure cuts cost per pallet by ' + pct +
               '%. The plan the close set still stands until a human accepts.';
           }
@@ -409,7 +417,7 @@
           if (take >= 4 && (take === newLoad.pallets || newLoad.partialAllowed)) {
             msg = 'A better out-of-process plan exists — the plan the close set leaves ' + newLoad.id +
               ' (' + newLoad.business + ', ' + newLoad.lane + ') behind past its delivery window. Putting ' +
-              take + ' of its ' + newLoad.pallets + ' pallets on the ' + dep.gate + ' ' + fmtTime(dep.time) +
+              take + ' of its ' + newLoad.pallets + ' pallets on the ' + dep.dock + ' ' + fmtTime(dep.time) +
               ' departure rescues the window. The plan the close set still stands until a human accepts.';
           }
         }
@@ -429,7 +437,7 @@
         o.progress += o.rate * dt;
         o.materialsIn += dt * 2;
         o.recyclingOut += dt * 0.7;
-        if (!o.alerted85 && o.progress >= CONFIG.alertPublish) {
+        if (!o.alerted85 && o.progress >= S.settings.alertPublish) {
           o.alerted85 = true;
           var ready = S.now + (1 - o.progress) / o.rate;
           var load = addLoad({
@@ -442,7 +450,7 @@
           log('85% alert — ' + machine.id + ' (' + o.business + ', ' + o.lane + '): projected ready ' + fmtTime(ready) + ' published to the matcher.');
           runMatcher('85% alert');
         }
-        if (!o.alerted95 && o.progress >= CONFIG.alertFinal) {
+        if (!o.alerted95 && o.progress >= S.settings.alertFinal) {
           o.alerted95 = true;
           var fin = S.now + (1 - o.progress) / o.rate;
           var l2 = o.loadId ? S.loads[o.loadId] : null;
@@ -545,7 +553,7 @@
         plan0.cost = planCost(dep, plan0.pallets);
         plan0.fill = plan0.pallets / CONFIG.boxes[dep.box].cap;
         S.enginePlans[dep.id] = plan0;
-        log('Watcher proposal accepted by the operator — ' + moving.id + ' joins the ' + dep.gate + ' ' + fmtTime(dep.time) + ' departure.');
+        log('Watcher proposal accepted by the operator — ' + moving.id + ' joins the ' + dep.dock + ' ' + fmtTime(dep.time) + ' departure.');
       } else if (accept && dep && dep.departed) {
         w.status = 'moot';
         log('Watcher proposal arrived too late to use — that departure has already left.');
@@ -553,6 +561,64 @@
         w.status = 'ignored';
         log('Watcher proposal ignored by the operator — the plan the close set stands.');
       }
+    }
+
+    // ----- Operator-placed variables -----
+    // The operator creates an entry and places it. A placed order enters the
+    // same Warehouse Inventory set the seeded day uses; a placed departure
+    // enters the Dock and Trailer Schedule; placed thresholds and rates set
+    // this run's alert and costing inputs. Every placement re-runs the
+    // matcher, and after the close the watcher judges the new entry against
+    // the plan the close set — the same path a wrench travels. The placed
+    // variables create the equation, and the equation resolves again.
+    function placeOrder(fields) {
+      var load = addLoad({
+        business: fields.business,
+        lane: fields.lane,
+        pallets: fields.pallets,
+        weightPerPallet: fields.weightPerPallet || null,
+        weightTotal: fields.weightPerPallet ? fields.weightPerPallet * fields.pallets : null,
+        volumeGallons: fields.volumeGallons || null,
+        chemicalForm: fields.chemicalForm || null,
+        chemicalAmount: fields.chemicalAmount || null,
+        windowStart: fields.windowStart != null ? fields.windowStart : S.now,
+        windowEnd: fields.windowEnd,
+        partialAllowed: !!fields.partialAllowed,
+        readyTime: fields.readyTime,
+        ageDays: 0,
+        source: 'placed',
+        state: 'inventory'
+      });
+      log('Variable placed — order ' + load.id + ' (' + load.business + ', ' + load.lane + ', ' +
+        load.pallets + ' pallets, ready ' + fmtTime(load.readyTime) + '). The equation resolves again.');
+      runMatcher('operator placed an order');
+      watcherCheck(load);
+      return load;
+    }
+
+    function placeDeparture(fields) {
+      var dep = {
+        id: nextId('D'), dock: fields.dock, time: fields.time,
+        lane: fields.lane, box: fields.box,
+        bol: false, departed: false, preLadenDone: false, placed: true
+      };
+      S.departures.push(dep);
+      S.departures.sort(function (a, b) { return a.time - b.time; });
+      log('Variable placed — departure ' + dep.dock + ' ' + fmtTime(dep.time) + ' (' + dep.lane + ', ' +
+        CONFIG.boxes[dep.box].label + '). The equation resolves again.');
+      runMatcher('operator placed a departure');
+      return dep;
+    }
+
+    function placeSettings(fields) {
+      if (fields.alertPublish != null) S.settings.alertPublish = fields.alertPublish;
+      if (fields.alertFinal != null) S.settings.alertFinal = fields.alertFinal;
+      if (fields.fuelSurchargePct != null) S.settings.fuelSurchargePct = fields.fuelSurchargePct;
+      log('Variables placed — alert thresholds now ' + Math.round(S.settings.alertPublish * 100) + '% and ' +
+        Math.round(S.settings.alertFinal * 100) + '%, fuel surcharge now ' +
+        Math.round(S.settings.fuelSurchargePct * 100) + '%. The equation resolves again.');
+      runMatcher('operator placed thresholds and rates');
+      return S.settings;
     }
 
     runMatcher('morning fill');
@@ -565,6 +631,9 @@
       hotOrder: hotOrder,
       pullOrder: pullOrder,
       watcherDecision: watcherDecision,
+      placeOrder: placeOrder,
+      placeDeparture: placeDeparture,
+      placeSettings: placeSettings,
       health: health,
       fmtTime: fmtTime,
       addLoad: addLoad
