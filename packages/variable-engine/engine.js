@@ -87,6 +87,12 @@
       shippedPallets: 0,
       enginePlans: {},  // departureId -> {fill, cost, pallets}
       baseline: { fillSum: 0, fillN: 0, costSum: 0, palletSum: 0 },
+      // Pristine copies of the day's placed inputs for the manual
+      // (engine-off) comparison — see the snapshot below computeBaseline's
+      // comment. The live loads and departures mutate as the day runs;
+      // these copies never do, so the manual figure stays a full-day one.
+      manualLoads: [],  // {key, lane, pallets, ageDays}
+      manualDeps: [],   // {key, lane, box, time}
       hotUsed: false,
       // Operator-placed settings for this run of the day. They start at the
       // CONFIG values; placing new ones changes this run only, and a fresh
@@ -178,6 +184,19 @@
         lane: LANES[idx % LANES.length], box: row[2],
         bol: false, departed: false, preLadenDone: false
       });
+    });
+    // Snapshot the day's placed inputs for the manual comparison, before
+    // the matcher touches anything: the seeded finished inventory and the
+    // seeded dock schedule, copied field by field. Operator placements add
+    // their own copies in placeOrder / placeDeparture.
+    S.loadOrder.forEach(function (id) {
+      var L = S.loads[id];
+      if (L && L.source === 'inventory') {
+        S.manualLoads.push({ key: L.id, lane: L.lane, pallets: L.pallets, ageDays: L.ageDays || 0 });
+      }
+    });
+    S.departures.forEach(function (dep) {
+      S.manualDeps.push({ key: dep.id, lane: dep.lane, box: dep.box, time: dep.time });
     });
 
     // ----- Core calculations -----
@@ -303,21 +322,43 @@
       if (reason) log('Matcher re-ran (' + reason + ') — ' + S.variations + ' variations evaluated so far.');
     }
 
-    // Engine-off comparison: first-fit over finished inventory only —
-    // no projections, no partials, no ready-time math.
+    // Engine-off comparison — the MANUAL model, in plain terms.
+    // Question it answers: what would this same day cost if a person
+    // planned it by hand, the way the floor has always done it?
+    // Rules (deliberately simpler than the engine — that gap is the point):
+    //   - Finished inventory only: the seeded warehouse loads plus any
+    //     order the operator places. Nothing still on a machine counts.
+    //   - Oldest first: within a lane, loads are taken by age (ageDays,
+    //     highest first) so old stock moves before fresh stock.
+    //   - Whole loads only: a load goes on the truck entire or not at
+    //     all — no partials, no splitting a load across trucks.
+    //   - First-fit: trucks are worked in departure-time order; each
+    //     truck takes the oldest loads of its lane that fit its box.
+    //   - No ready-time math: if it is in the warehouse and matches the
+    //     lane, it can go — production timing is not the manual planner's
+    //     problem in this model.
+    //   - Same prices as the engine: planCost() below (lane rate x
+    //     (1 + fuel surcharge) + handling per pallet), so the comparison
+    //     isolates the planning, never the price list.
+    // It runs over the pristine copies in S.manualLoads / S.manualDeps —
+    // the day as placed at creation, plus operator placements — never
+    // over live loads, so trucks departing and loads changing state
+    // cannot drain it. The figure is the same at 7 AM and at day-complete.
+    // Knobs for tweaking: the rules live in this one function (sort key,
+    // whole-load test, truck order). The pool lives in the snapshot taken
+    // at creation plus the copies added in placeOrder / placeDeparture.
+    // Prices live in CONFIG (laneRates, handlingPerPallet) and in
+    // S.settings.fuelSurchargePct — the same knobs the engine side uses.
     function computeBaseline() {
       var used = {}, fillSum = 0, fillN = 0, costSum = 0, palletSum = 0;
-      S.departures.forEach(function (dep) {
-        if (dep.departed) return;
+      var deps = S.manualDeps.slice().sort(function (a, b) { return a.time - b.time; });
+      deps.forEach(function (dep) {
         var cap = CONFIG.boxes[dep.box].cap, pallets = 0;
-        var pool = S.loadOrder.map(function (id) { return S.loads[id]; })
-          .filter(function (L) {
-            return L && !used[L.id] && L.source === 'inventory' &&
-              (L.state === 'inventory') && L.lane === dep.lane;
-          })
+        var pool = S.manualLoads
+          .filter(function (L) { return !used[L.key] && L.lane === dep.lane; })
           .sort(function (a, b) { return b.ageDays - a.ageDays; });
         pool.forEach(function (L) {
-          if (pallets + L.pallets <= cap) { used[L.id] = true; pallets += L.pallets; }
+          if (pallets + L.pallets <= cap) { used[L.key] = true; pallets += L.pallets; }
         });
         if (pallets > 0) {
           fillSum += pallets / cap; fillN++;
@@ -589,6 +630,10 @@
         source: 'placed',
         state: 'inventory'
       });
+      // The placed order also joins the manual pool: it is finished
+      // inventory the operator put on the floor, so the by-hand plan
+      // gets to use it too, under the manual rules.
+      S.manualLoads.push({ key: load.id, lane: load.lane, pallets: load.pallets, ageDays: 0 });
       log('Variable placed — order ' + load.id + ' (' + load.business + ', ' + load.lane + ', ' +
         load.pallets + ' pallets, ready ' + fmtTime(load.readyTime) + '). The equation resolves again.');
       runMatcher('operator placed an order');
@@ -604,6 +649,9 @@
       };
       S.departures.push(dep);
       S.departures.sort(function (a, b) { return a.time - b.time; });
+      // The placed departure also joins the manual plan as one more
+      // truck the by-hand planner gets to fill.
+      S.manualDeps.push({ key: dep.id, lane: dep.lane, box: dep.box, time: dep.time });
       log('Variable placed — departure ' + dep.dock + ' ' + fmtTime(dep.time) + ' (' + dep.lane + ', ' +
         CONFIG.boxes[dep.box].label + '). The equation resolves again.');
       runMatcher('operator placed a departure');
