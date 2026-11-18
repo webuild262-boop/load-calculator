@@ -87,7 +87,7 @@
         var status = r.position === 0 ? 'running'
           : (r.position === 1 ? 'next in line' : 'in line — position ' + r.position);
         return '<div class="q-row"><span class="q-ready">' + engine.fmtTime(r.ready) + '</span> · ' +
-          esc(o.id) + ' ' + esc(o.business) + ' · ' + r.machineId + ' · ' + o.pallets +
+          (o.orderNo != null ? 'Order #' + o.orderNo : esc(o.id)) + ' ' + esc(o.business) + ' · ' + r.machineId + ' · ' + o.pallets +
           ' pallets · ' + esc(o.lane) + ' · <span class="q-status">' + status + '</span></div>';
       }).join('');
     } else {

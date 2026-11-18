@@ -49,6 +49,8 @@
   .q-ready { color: #7ee787; font-weight: 700; }
   .q-status { color: #9ecbff; }
   .q-wait-head { margin-top: 12px; padding-top: 8px; border-top: 1px solid #30363d; color: #f0883e; font-size: .88rem; font-weight: 700; }
+  .shelf-head { margin-top: 12px; padding-top: 8px; border-top: 1px solid #30363d; color: #f0883e; font-size: .88rem; font-weight: 700; }
+  .shelf-head:first-child { margin-top: 2px; padding-top: 0; border-top: none; }
   .dep-loads { margin-top: 4px; color: #c9d1d9; }
   .board { border: 1px solid #30363d; background: #161b22; border-radius: 10px; padding: 14px; min-height: 54px; }
   .dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; margin: 3px; vertical-align: middle; }
@@ -109,12 +111,16 @@
   <div class="panel">
     <div class="pforms">
       <fieldset>
-        <legend>New order — an entry for the matcher</legend>
+        <legend>New order — two choices at entry</legend>
+        <label>Enters at<select id="pv-route"><option value="machine">A machine (production)</option><option value="warehouse">The warehouse (finished)</option></select></label>
         <label>What it is (name / customer)<input id="pv-name" type="text" value="Placed order"></label>
+        <label>Address<input id="pv-address" type="text" placeholder="Empty uses the company address on file"></label>
+        <label>Order # — the number this order carries<input id="pv-orderno" type="number" min="1" placeholder="Empty takes the next free number"></label>
+        <label>Choice 1 — machine<select id="pv-machine"><option value="M1">M1</option><option value="M2">M2</option><option value="M3">M3</option><option value="M4">M4</option><option value="M5">M5</option></select></label>
+        <label>Choice 2 — after processing<select id="pv-choice2"><option value="shipping">Shipping</option><option value="warehouse">Warehouse</option></select></label>
         <label>Destination lane<select id="pv-lane"></select></label>
         <label>Pallets — quantity<input id="pv-pallets" type="number" min="1" max="60" value="14"></label>
         <label>Weight per pallet (lb)<input id="pv-weight" type="number" min="0" step="10" value="900"></label>
-        <label>Ready time<input id="pv-ready" type="time" value="09:00"></label>
         <label>Deliver by<input id="pv-by" type="time" value="16:00"></label>
         <label class="chk"><input id="pv-partial" type="checkbox" checked> Partial load allowed</label>
         <label>Liquid — volume in gallons (optional)<input id="pv-volume" type="number" min="0" placeholder="—"></label>
@@ -140,7 +146,7 @@
     </div>
     <p class="note">Each entry states what it is, and breaks down by the parameters it carries — quantity, size,
     weight, and time, and the wider measures a scenario needs: liquid by volume, and chemical as a family
-    (solid, liquid). The demo engine plans an order by its pallets, lane, ready time, and delivery window;
+    (solid, liquid). The demo engine plans an order by its pallets, lane, and delivery window;
     the weight, volume, and chemical breakdowns ride on the entry as placed measures, ready for a scenario
     that runs on them. The alert thresholds are placed values too — 85 and 95 are this demo's, not constants.</p>
     <div id="entries"></div>
@@ -156,8 +162,16 @@
     <section>
       <h2>Delivery <span>— what goes out, in which box, from which dock, at what time, at what cost</span></h2>
       <div id="ship-board"></div>
+      <h3>Delivery queue <span>— what goes out next, in the order it goes out, and what is on it</span></h3>
+      <div class="queuebox" id="ship-queue-board"></div>
     </section>
   </div>
+
+  <h2>Shelved loads <span>— where each load sits, and where it goes out</span></h2>
+  <div class="queuebox" id="shelf-board"></div>
+
+  <h2>All orders <span>— every order: processing, in line, what is next, and its pickup time</span></h2>
+  <div class="queuebox" id="orders-board"></div>
 
   <h2>Load board <span>— every load a dot; the shade is the calculation talking: green optimal, red needs help</span></h2>
   <div class="board" id="dot-board"></div>
@@ -175,9 +189,9 @@
 <!-- Script URLs carry a version token (?v=) so a browser can never pair this
      page with a cached older script. Bump the token on ALL THREE scripts
      whenever any one of them changes. -->
-<script src="packages/variable-engine/engine.js?v=20261117-6"></script>
-<script src="apps/processing/processing.js?v=20261117-6"></script>
-<script src="apps/delivery/delivery.js?v=20261117-6"></script>
+<script src="packages/variable-engine/engine.js?v=20261117-12"></script>
+<script src="apps/processing/processing.js?v=20261117-12"></script>
+<script src="apps/delivery/delivery.js?v=20261117-12"></script>
 <script>
 (function () {
   var engine = LoadEngine.createEngine(262);
@@ -187,7 +201,10 @@
     clock: document.getElementById('clock'), phase: document.getElementById('phase'),
     counters: document.getElementById('counters'), proc: document.getElementById('proc-board'),
     queue: document.getElementById('queue-board'),
-    ship: document.getElementById('ship-board'), dots: document.getElementById('dot-board'),
+    ship: document.getElementById('ship-board'), shipQueue: document.getElementById('ship-queue-board'),
+    shelf: document.getElementById('shelf-board'),
+    orders: document.getElementById('orders-board'),
+    dots: document.getElementById('dot-board'),
     log: document.getElementById('log'), watcher: document.getElementById('watcher')
   };
 
@@ -322,6 +339,9 @@
     ProcessingUI.render(engine, els.proc);
     ProcessingUI.renderQueue(engine, els.queue, waitingOrders);
     DeliveryUI.renderDepartures(engine, els.ship);
+    DeliveryUI.renderQueue(engine, els.shipQueue);
+    DeliveryUI.renderShelf(engine, els.shelf);
+    DeliveryUI.renderOrders(engine, els.orders);
     DeliveryUI.renderBoard(engine, els.dots);
     DeliveryUI.renderLog(engine, els.log, els.watcher);
   }
@@ -350,6 +370,12 @@
   function startDay() {
     engine = buildEngine();
     entries.length = 0;
+    document.getElementById('pv-orderno').value = '';
+    document.getElementById('pv-address').value = '';
+    document.getElementById('pv-route').value = 'machine';
+    document.getElementById('pv-machine').value = 'M1';
+    document.getElementById('pv-choice2').value = 'shipping';
+    syncRoute();
     document.getElementById('ps-pub').value = 85;
     document.getElementById('ps-fin').value = 95;
     document.getElementById('ps-fsc').value = 12;
@@ -424,38 +450,110 @@
       document.getElementById(id).appendChild(opt);
     });
   });
+  // The entry route: a machine route runs the order through
+  // processing, so its ready time comes from the production schedule.
+  // The two choice selects apply only to the machine route. No route
+  // asks when an order will finish — that time is calculated, never
+  // entered.
+  function syncRoute() {
+    var machine = document.getElementById('pv-route').value === 'machine';
+    document.getElementById('pv-machine').disabled = !machine;
+    document.getElementById('pv-choice2').disabled = !machine;
+  }
+  document.getElementById('pv-route').addEventListener('change', syncRoute);
+  syncRoute();
+  // The company directory lives on the engine module. A typed address
+  // governs for its order; this resolves the address on file for a
+  // company name, for the entry card.
+  function directoryAddress(business) {
+    var dir = LoadEngine.COMPANY_ADDRESSES || {};
+    if (dir[business]) return dir[business];
+    var base = String(business).replace(/\s*\([^)]*\)\s*$/, '');
+    if (base !== business && dir[base]) return dir[base];
+    return 'address not on file';
+  }
   document.getElementById('btn-place-order').addEventListener('click', function () {
-    if (!engineCurrent('placeOrder')) return;
+    var route = document.getElementById('pv-route').value;
+    var name = document.getElementById('pv-name').value || 'Placed order';
+    var orderNo = numVal('pv-orderno');
+    if (orderNo != null) orderNo = Math.round(orderNo);
+    var addr = document.getElementById('pv-address').value.replace(/^\s+|\s+$/g, '');
     var pallets = Math.max(1, Math.round(numVal('pv-pallets') || 1));
-    var wpp = numVal('pv-weight');
-    var ready = timeVal('pv-ready'); if (ready == null) ready = engine.state.now;
     var by = timeVal('pv-by'); if (by == null) by = engine.config.dayEnd;
+    var partial = document.getElementById('pv-partial').checked;
+    var lane = document.getElementById('pv-lane').value;
+    function refuse() {
+      addEntry('Order not placed', [
+        'Order #' + orderNo + ' is already in use on today\'s board.',
+        'No order was placed. Pick a number no order carries yet, then place it again.'
+      ]);
+    }
+    if (route === 'machine') {
+      if (!engineCurrent('placeProductionOrder')) return;
+      var machineId = document.getElementById('pv-machine').value;
+      var choice2 = document.getElementById('pv-choice2').value;
+      var order = engine.placeProductionOrder({
+        business: name,
+        lane: lane,
+        pallets: pallets,
+        windowEnd: by,
+        partialAllowed: partial,
+        machineId: machineId,
+        deliveryChoice: choice2,
+        orderNumber: orderNo,
+        address: addr || null
+      });
+      if (!order) { refuse(); return; }
+      document.getElementById('pv-orderno').value = '';
+      document.getElementById('pv-address').value = '';
+      addEntry('Order entry — Order #' + order.orderNo + ': ' + name, [
+        'Order #' + order.orderNo,
+        'Company: ' + name,
+        'Address: ' + (order.address || directoryAddress(name)),
+        'Quantity: ' + pallets + ' pallets',
+        'Choice 1 — machine: ' + machineId,
+        'Choice 2 — after processing: ' + (choice2 === 'warehouse' ? 'Warehouse' : 'Shipping'),
+        'Destination: ' + lane,
+        'Deliver by ' + engine.fmtTime(by),
+        'Ready time comes from the production schedule on ' + machineId + '.',
+        partial ? 'Partial loads allowed' : 'Ships whole only'
+      ]);
+      render();
+      return;
+    }
+    if (!engineCurrent('placeOrder')) return;
+    var wpp = numVal('pv-weight');
     var vol = numVal('pv-volume');
     var chem = document.getElementById('pv-chem').value || null;
     var chemAmt = document.getElementById('pv-chemamt').value || null;
-    var name = document.getElementById('pv-name').value || 'Placed order';
-    var partial = document.getElementById('pv-partial').checked;
     var load = engine.placeOrder({
       business: name,
-      lane: document.getElementById('pv-lane').value,
+      lane: lane,
       pallets: pallets,
       weightPerPallet: wpp,
-      readyTime: ready,
       windowEnd: by,
       partialAllowed: partial,
       volumeGallons: vol,
       chemicalForm: chem,
-      chemicalAmount: chemAmt
+      chemicalAmount: chemAmt,
+      orderNumber: orderNo,
+      address: addr || null
     });
-    var lines = ['Quantity: ' + pallets + ' pallets'];
+    if (!load) { refuse(); return; }
+    document.getElementById('pv-orderno').value = '';
+    document.getElementById('pv-address').value = '';
+    var lines = ['Order #' + load.orderNo, 'Company: ' + name,
+      'Address: ' + (load.address || directoryAddress(name)),
+      'Quantity: ' + pallets + ' pallets'];
     if (wpp) lines.push('Weight: ' + wpp.toLocaleString() + ' lb per pallet · ' + (wpp * pallets).toLocaleString() + ' lb total');
     lines.push('Destination: ' + load.lane);
-    lines.push('Time: ready ' + engine.fmtTime(ready) + ' · deliver by ' + engine.fmtTime(by));
+    lines.push('Ready as entered.');
+    lines.push('Deliver by ' + engine.fmtTime(by));
     lines.push(partial ? 'Partial loads allowed' : 'Ships whole only');
     if (vol) lines.push('Liquid: ' + vol.toLocaleString() + ' gallons by volume');
     if (chem) lines.push('Chemical: ' + chem + (chemAmt ? ' · ' + chemAmt : ''));
     lines.push('Engine state now: ' + load.state + (load.assignedTo ? ' · assigned to a departure' : ' · waiting for a departure'));
-    addEntry('Order entry — ' + load.id + ': ' + name, lines);
+    addEntry('Order entry — Order #' + load.orderNo + ': ' + name, lines);
     render();
   });
   document.getElementById('btn-place-dep').addEventListener('click', function () {

@@ -41,6 +41,7 @@
       'Boston':       { '45T': 700, '26B': 581 },
       'DC / Baltimore': { '45T': 855, '26B': 710 }
     },
+    orderNumberBase: 723001, // first order number of the day — a placed default for the demo; the day's own numbers rise from here in creation order
     machines: 5,
     docks: ['D1', 'D2']
   };
@@ -48,6 +49,19 @@
   var LANES = Object.keys(CONFIG.laneRates);
   var BUSINESSES = ['Acme Packaging', 'BlueLine Foods', 'Garden State Apparel',
     'Metro Pharma', 'Hudson Home Goods', 'Liberty Beverages'];
+
+  // Company directory: one fixed address per company, held as placed
+  // demo data. An order number is tied to the company at its address:
+  // renderers resolve a seeded order's address from this directory by
+  // company name, so the seeded day stores nothing new.
+  var COMPANY_ADDRESSES = {
+    'Acme Packaging': '482 Industrial Ave, Carlstadt, NJ 07072',
+    'BlueLine Foods': '77 Meadowlands Pkwy, Secaucus, NJ 07094',
+    'Garden State Apparel': '900 Castle Rd, Secaucus, NJ 07094',
+    'Metro Pharma': '214 Harbor Blvd, Jersey City, NJ 07302',
+    'Hudson Home Goods': '35 Hudson St, Hoboken, NJ 07030',
+    'Liberty Beverages': '88 Liberty Ave, Jersey City, NJ 07306'
+  };
 
   // Common orders and runs: the standing daily run, placed on its
   // recurring pattern. It completes mid-afternoon, after the close.
@@ -198,10 +212,37 @@
       return load;
     }
 
+    // ----- Order numbers: one number per order, never repeated -----
+    // The day's own run starts at the placed base, rising in creation
+    // order. An operator may enter any number in any manner; entry
+    // never moves this run. The single hard rule is uniqueness: a
+    // number on the board is never handed out twice, so the run skips
+    // any number already carried by an order or a load.
+    var nextAutoNo = C.orderNumberBase;
+    function orderNumberInUse(n) {
+      var used = false;
+      S.machines.forEach(function (m) {
+        if (m.current && m.current.orderNo === n) used = true;
+        m.queue.forEach(function (o) { if (o.orderNo === n) used = true; });
+      });
+      if (!used) {
+        S.loadOrder.forEach(function (id) {
+          var L = S.loads[id];
+          if (L && L.orderNo === n) used = true;
+        });
+      }
+      return used;
+    }
+    function takeOrderNo() {
+      while (orderNumberInUse(nextAutoNo)) nextAutoNo++;
+      return nextAutoNo++;
+    }
+
     function makeOrder(machineId) {
       var lane = lanes[Math.floor(rnd() * lanes.length)];
       return {
         id: nextId('O'),
+        orderNo: takeOrderNo(),
         machineId: machineId,
         business: BUSINESSES[Math.floor(rnd() * BUSINESSES.length)],
         lane: lane,
@@ -272,7 +313,7 @@
 
     function orderFromDoc(doc) {
       return {
-        id: doc.id, machineId: doc.machineId, business: doc.business,
+        id: doc.id, orderNo: takeOrderNo(), machineId: doc.machineId, business: doc.business,
         lane: doc.lane, pallets: doc.pallets,
         windowStart: doc.windowStart, windowEnd: doc.windowEnd,
         partialAllowed: !!doc.partialAllowed,
@@ -370,6 +411,9 @@
         if (!L) return;
         if (L.state !== 'inventory' && L.state !== 'projected' && L.state !== 'calculated') return;
         if (L.assignedTo) return;
+        // Choice 2 at entry, set to Warehouse: this load rests on the
+        // shelf, so the matcher never takes it as a candidate.
+        if (L.deliveryChoice === 'warehouse') return;
         if (L.lane !== dep.lane) return;
         if (L.windowEnd < dep.time) return; // latest delivery window check
         out.push(L);
@@ -458,6 +502,10 @@
                 partialAllowed: c.load.partialAllowed, ageDays: c.load.ageDays,
                 readyTime: c.load.readyTime, source: c.load.source, partialOf: c.load.id
               });
+              if (c.load.orderId) partLoad.orderId = c.load.orderId;
+              if (c.load.orderNo != null) partLoad.orderNo = c.load.orderNo;
+              if (c.load.deliveryChoice) partLoad.deliveryChoice = c.load.deliveryChoice;
+              if (c.load.address) partLoad.address = c.load.address;
               c.load.pallets = rest;
               partLoad.state = 'assigned'; partLoad.assignedTo = dep.id;
             } else {
@@ -584,6 +632,9 @@
     // a candidate — the truck does not change; the correction is load-side.
     function watcherCheck(newLoad) {
       if (!S.closed) return;
+      // A Warehouse-choice load rests on the shelf by the operator's
+      // own entry decision, so the watcher never proposes it either.
+      if (newLoad.deliveryChoice === 'warehouse') return;
       if (newLoad.assignedTo || newLoad.state === 'shipped' || newLoad.state === 'pulled') return;
       S.departures.forEach(function (dep) {
         if (dep.departed) return;
@@ -635,12 +686,19 @@
         if (!o.alerted85 && o.progress >= S.settings.alertPublish) {
           o.alerted85 = true;
           var ready = S.now + (1 - o.progress) / o.rate;
-          var load = addLoad({
+          var loadFields = {
             business: o.business, lane: o.lane, pallets: o.pallets,
             windowStart: o.windowStart, windowEnd: o.windowEnd,
             partialAllowed: o.partialAllowed, readyTime: ready,
-            source: 'production', state: 'projected'
-          });
+            source: 'production', state: 'projected', orderId: o.id, orderNo: o.orderNo
+          };
+          // Entry stamps ride the order onto its load: Choice 2 for
+          // where the load goes after processing, plus the typed
+          // address where the operator entered one. Seeded orders
+          // carry neither field, so their loads stay exactly as before.
+          if (o.deliveryChoice) loadFields.deliveryChoice = o.deliveryChoice;
+          if (o.address) loadFields.address = o.address;
+          var load = addLoad(loadFields);
           o.loadId = load.id;
           log('85% alert — ' + machine.id + ' (' + o.business + ', ' + o.lane + '): projected ready ' + fmtTime(ready) + ' published to the matcher.');
           runMatcher('85% alert');
@@ -740,6 +798,10 @@
             partialAllowed: load.partialAllowed, ageDays: load.ageDays,
             readyTime: load.readyTime, source: load.source, partialOf: load.id
           });
+          if (load.orderId) partLoad.orderId = load.orderId;
+          if (load.orderNo != null) partLoad.orderNo = load.orderNo;
+          if (load.deliveryChoice) partLoad.deliveryChoice = load.deliveryChoice;
+          if (load.address) partLoad.address = load.address;
           load.pallets -= space;
           moving = partLoad;
         }
@@ -768,7 +830,20 @@
     // the plan the close set — the same path a wrench travels. The placed
     // variables create the equation, and the equation resolves again.
     function placeOrder(fields) {
+      // The order number: the operator may enter one in any manner, or
+      // leave it out — the day's own run then assigns the next unused
+      // number. A number already on the board is refused outright:
+      // nothing is placed, so no order ever shares a number.
+      var entered = fields.orderNumber;
+      if (entered != null) {
+        entered = Number(entered);
+        if (!isFinite(entered) || orderNumberInUse(entered)) return null;
+      }
+      // A received load is ready when it is entered — finish time is
+      // a calculated output, never an entry input. An API caller may
+      // still pass a ready time explicitly; the form no longer does.
       var load = addLoad({
+        orderNo: entered != null ? entered : takeOrderNo(),
         business: fields.business,
         lane: fields.lane,
         pallets: fields.pallets,
@@ -780,11 +855,15 @@
         windowStart: fields.windowStart != null ? fields.windowStart : S.now,
         windowEnd: fields.windowEnd,
         partialAllowed: !!fields.partialAllowed,
-        readyTime: fields.readyTime,
+        readyTime: fields.readyTime != null ? fields.readyTime : S.now,
         ageDays: 0,
         source: 'placed',
         state: 'inventory'
       });
+      // A typed address governs for this order; an empty one stores
+      // nothing, so the company directory resolves the address at
+      // display time.
+      if (fields.address) load.address = fields.address;
       // The placed order also joins the manual pool: it is finished
       // inventory the operator put on the floor, so the by-hand plan
       // gets to use it too, under the manual rules.
@@ -794,6 +873,48 @@
       runMatcher('operator placed an order');
       watcherCheck(load);
       return load;
+    }
+
+    // Choice 1 at entry: the machine. An entered order joins the line
+    // on the machine the operator names, runs through processing like
+    // any other order, and carries Choice 2 with it — warehouse or
+    // shipping — for the moment its load exists. The number follows
+    // the same entry rules as a placed finished order: any manner,
+    // never repeated. A refused number places nothing.
+    function placeProductionOrder(fields) {
+      var machine = null;
+      S.machines.forEach(function (m) { if (m.id === fields.machineId) machine = m; });
+      if (!machine) return null;
+      var entered = fields.orderNumber;
+      if (entered != null) {
+        entered = Number(entered);
+        if (!isFinite(entered) || orderNumberInUse(entered)) return null;
+      }
+      var order = {
+        id: nextId('O'),
+        orderNo: entered != null ? entered : takeOrderNo(),
+        machineId: machine.id,
+        business: fields.business,
+        lane: fields.lane,
+        pallets: fields.pallets,
+        windowStart: fields.windowStart != null ? fields.windowStart : S.now,
+        windowEnd: fields.windowEnd,
+        partialAllowed: !!fields.partialAllowed,
+        rate: 0.006,
+        progress: 0,
+        loadId: null,
+        alerted85: false,
+        alerted95: false,
+        materialsIn: 0,
+        recyclingOut: 0,
+        deliveryChoice: fields.deliveryChoice === 'warehouse' ? 'warehouse' : 'shipping'
+      };
+      if (fields.address) order.address = fields.address;
+      if (machine.current) machine.queue.push(order);
+      else machine.current = order;
+      log('Variable placed — production order ' + order.id + ' (' + order.business + ', ' + order.lane + ', ' +
+        order.pallets + ' pallets) joins the line on ' + machine.id + '. The equation resolves again.');
+      return order;
     }
 
     function placeDeparture(fields) {
@@ -838,6 +959,7 @@
       pullOrder: pullOrder,
       watcherDecision: watcherDecision,
       placeOrder: placeOrder,
+      placeProductionOrder: placeProductionOrder,
       placeDeparture: placeDeparture,
       placeSettings: placeSettings,
       health: health,
@@ -846,7 +968,7 @@
     };
   }
 
-  var api = { createEngine: createEngine, CONFIG: CONFIG, fmtTime: fmtTime, COMMON_RUN: COMMON_RUN };
+  var api = { createEngine: createEngine, CONFIG: CONFIG, fmtTime: fmtTime, COMMON_RUN: COMMON_RUN, COMPANY_ADDRESSES: COMPANY_ADDRESSES };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.LoadEngine = api;
 })(typeof window !== 'undefined' ? window : globalThis);
