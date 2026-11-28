@@ -4,7 +4,7 @@
 
 Load Calculator is a variable calculator. It takes multiple various variables that are changeable by quantity, size, weight, and/or time. The operator places the variables needed as input, and the placed variables create the equation. The equation calculates the best output for the outcome requested. Time and timing sit at the core of every calculation the engine runs.
 
-This case places production and shipping variables for manufacturing: streamlining the process for greater productivity, greater output, and less friction. Loads go out per customer instructions, and nothing in the system is fixed — every variable can be changed at will.
+This case places production and delivery variables for manufacturing: streamlining the process for greater productivity, greater output, and less friction. Loads go out per customer instructions, and nothing in the system is fixed — every variable can be changed at will.
 
 ## The foundation
 
@@ -27,4 +27,6 @@ Build in progress. The demo's operator can now place variables — a new order, 
 
 ## License
 
-MIT — see `LICENSE`.
+MIT — see `LICENSE`. Copyright (c) 2026 Allen Ramirez (Webuild262).
+
+This repository is the Kiroween 2026 contest entry, MIT-licensed because the contest rules require a public, open-source repository. The commercial product built on this work is separate and is not part of this repository.
