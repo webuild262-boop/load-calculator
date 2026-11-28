@@ -27,6 +27,4 @@ Build in progress. The demo's operator can now place variables — a new order, 
 
 ## License
 
-MIT — see `LICENSE`. Copyright (c) 2026 Allen Ramirez (Webuild262).
-
-This repository is the Kiroween 2026 contest entry, MIT-licensed because the contest rules require a public, open-source repository. The commercial product built on this work is separate and is not part of this repository.
+MIT — see `LICENSE`.
